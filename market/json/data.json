@@ -1,0 +1,370 @@
+{
+	"title": "UZITT渔驻",
+	"logo": "logo.jpg",
+	"good": [
+	  {
+			"_id": "1",
+			"img": "g_gq.jpg",
+			"name": "双芯卷铅 精准工艺",
+			"category": "4",
+			"sku": [{
+				"_id": "1",
+				"name": "2克整包4枚装",
+				"price": "3.8"
+			}, {
+				"_id": "2",
+				"name": "3克整包4枚装",
+				"price": "3.8"
+			}],
+
+			"content":[
+			  "con_gq.jpg",
+			  "con_gq2.jpg",
+			],
+			"price": "3.8"
+	  },
+	  {
+			"_id": "2",
+			"img": "g_cy.jpg",
+			"name": "承影碳素台钓竿28调鱼竿 高端材质超轻钓鱼竿",
+			"sku": [{
+				"_id": "1",
+				"name": "承影3.6米",
+				"price": "178"
+			}, {
+				"_id": "2",
+				"name": "承影4.5米",
+				"price": "218"
+			}, {
+				"_id": "3",
+				"name": "承影5.4米",
+				"price": "258"
+			}, {
+				"_id": "4",
+				"name": "承影6.3米",
+				"price": "298"
+			}],
+
+			"content":[
+			  "con_cy.jpg",
+			  "con_cy2.jpg",
+			],
+			"price": "178"
+	  },
+	  {
+			"_id": "3",
+			"img": "g_zd.jpg",
+			"name": "锌合金摘钩器 脱钩器 钓鱼工具",
+			"category": "8",
+			"price": "8.8"
+	  },
+	  {
+			"_id": "4",
+			"img": "g_p.jpg",
+			"name": "青圭系列 巴尔杉木漂",
+			"sku": [{
+				"_id": "1",
+				"name": "青圭系列浮漂",
+				"children": [{
+					"_id": "2",
+					"name": "青圭系列1#单支",
+					"price": "9.8"
+				},{
+					"_id": "3",
+					"name": "青圭系列2#单支",
+					"price": "9.8"
+				},{
+					"_id": "4",
+					"name": "青圭系列3#单支",
+					"price": "9.8"
+				},{
+					"_id": "5",
+					"name": "青圭系列3支套装",
+					"price": "18.8"
+				}]
+			}],
+
+			"content":[
+			  "con_p.jpg",
+			  "con_p2.jpg",
+			],
+			"price": "178"
+	  },
+	  {
+			"_id": "5",
+			"img": "g_ys.jpg",
+			"name": "伊势尼 倒刺淡水 钓鱼钩",
+			"category": "6",
+			"sku": [{
+				"_id": "1",
+				"name": "伊势尼2号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "2",
+				"name": "伊势尼4号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "3",
+				"name": "伊势尼6号整包5枚",
+				"price": "2.8"
+			}],
+
+			"content":[
+			  "con_ys.jpg",
+			  "con_ys2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "6",
+			"img": "g_gd.jpg",
+			"name": "新关东 无刺淡水 钓鱼钩",
+			"category": "6",
+			"sku": [{
+				"_id": "1",
+				"name": "新关东0.3号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "2",
+				"name": "新关东0.8号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "3",
+				"name": "新关东2号整包5枚",
+				"price": "2.8"
+			}],
+
+			"content":[
+			  "con_gd.jpg",
+			  "con_gd2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "7",
+			"img": "g_jq.jpg",
+			"name": "子线卷铅 精准工艺",
+			"category": "4",
+			"sku": [{
+				"_id": "1",
+				"name": "2克整包3枚",
+				"price": "3.8"
+			}, {
+				"_id": "2",
+				"name": "3克整包3枚	",
+				"price": "3.8"
+			}],
+			"content":[
+			  "con_jq.jpg",
+			  "con_jq2.jpg",
+			],
+			"price": "3.8"
+	  },
+	  {
+			"_id": "8",
+			"img": "g_tk.jpg",
+			"name": "一体 优质太空豆 钓鱼配件 韧性好 伸缩性强",
+			"category": "4",
+			"sku": [
+				{
+					"_id": "1",
+					"name": "UZITT一体太空豆#0.9",
+					"price": "2.8"
+				}
+			],
+			"content":[
+			  "con_tk.jpg",
+			  "con_tk2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "9",
+			"img": "g_gs.jpg",
+			"name": "高速双连环 钓鱼配件",
+			"category": "4",
+			"sku": [
+				{
+					"_id": "1",
+					"name": "高速双连环 钓鱼配件 4枚装",
+					"price": "2.8"
+				}
+			],
+			"content":[
+			  "con_gaosu.jpg",
+			  "con_gaosu2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "10",
+			"img": "g_dx.jpg",
+			"name": "猛虎系列 进口原丝 道系 主线 鱼线",
+			"category": "5",
+			"sku": [
+				{
+					"_id": "1",
+					"name": "猛虎道系1.0整盘",
+					"price": "24.8"
+				},
+				{
+					"_id": "1",
+					"name": "猛虎道系1.5整盘",
+					"price": "24.8"
+				},
+				{
+					"_id": "1",
+					"name": "猛虎道系2.0整盘",
+					"price": "24.8"
+				}
+			],
+
+			"content":[
+			  "con_dx.jpg",
+			  "con_dx2.jpg",
+			],
+			"price": "24.80"
+	  },
+	  {
+			"_id": "11",
+			"img": "g_xl.jpg",
+			"name": "溪流 无刺淡水 钓鱼钩",
+			"category": "6",
+			"sku": [{
+				"_id": "1",
+				"name": "溪流无刺2号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "2",
+				"name": "溪流无刺4号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "3",
+				"name": "溪流无刺6号整包5枚",
+				"price": "2.8"
+			}],
+			"content":[
+			  "con_xl.jpg",
+			  "con_xl2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "12",
+			"img": "g_xg.jpg",
+			"name": "袖钩 无刺淡水 钓鱼钩",
+			"category": "6",
+			"sku": [{
+				"_id": "1",
+				"name": "袖无刺2号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "2",
+				"name": "袖无刺4号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "3",
+				"name": "袖无刺6号整包5枚",
+				"price": "2.8"
+			}],
+			"content":[
+			  "con_xg.jpg",
+			  "con_xg2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "11",
+			"img": "g_ws.jpg",
+			"name": "丸世 无刺淡水 钓鱼钩",
+			"category": "6",
+			"sku": [{
+				"_id": "1",
+				"name": "丸世2号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "2",
+				"name": "丸世4号整包5枚",
+				"price": "2.8"
+			}, {
+				"_id": "3",
+				"name": "丸世6号整包5枚",
+				"price": "2.8"
+			}],
+
+			"content":[
+			  "con_ws.jpg",
+			  "con_ws2.jpg",
+			],
+			"price": "2.8"
+	  },
+	  {
+			"_id": "14",
+			"img": "g_lx.jpg",
+			"name": "菱形转环 钓鱼配件",
+			"category": "4",
+			"content":[
+			  "con_lx.jpg",
+			  "con_lx2.jpg",
+			],
+			"price": "1.8"
+	  },
+	  {
+			"_id": "14",
+			"img": "g_h.jpg",
+			"name": "子线转环 钓鱼配件 台钓竿 方便更换子线",
+			"category": "4",
+			"content":[
+			  "con_h.jpg",
+			  "con_h2.jpg",
+			],
+			"price": "3.8"
+	  }
+	],
+	"category":[
+	  {
+	  	"_id": "1",
+	  	"name": "鱼竿",
+	  	"children" : [{
+	  		"_id": "2",
+	  		"name": "台钓-碳素杆"
+	  	}, {
+	  		"_id": "3",
+	  		"name": "台钓-玻璃钢"
+	  	}]
+	  },
+	  {
+	  	"_id": "4",
+	  	"name": "配件",
+	  	"children" : [{
+	  		"_id": "5",
+	  		"name": "鱼线"
+	  	}, {
+	  		"_id": "6",
+	  		"name": "鱼钓"
+	  	}]
+	  },
+	  {
+	  	"_id": "7",
+	  	"name": "工具",
+	  	"children" : [{
+	  		"_id": "8",
+	  		"name": "摘钩器"
+	  	}, {
+	  		"_id": "9",
+	  		"name": "绑钩器"
+	  	}, {
+	  		"_id": "10",
+	  		"name": "刀剪钳"
+	  	}]
+	  },
+	  {
+	  	"_id": "11",
+	  	"name": "套装",
+	  	"children" : [{
+	  		"_id": "12",
+	  		"name": "台钓套装"
+	  	}]
+	  }
+	]
+}
