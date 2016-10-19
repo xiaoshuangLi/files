@@ -1,6 +1,7 @@
 {
 	"title": "UZITT渔驻",
 	"logo": "logo.jpg",
+	"prefix": "https://cdn.rawgit.com/xiaoshuangLi/files/master/market/img/",
 	"good": [{
 		"_id": "1",
 		"img": "g_gq.jpg",
