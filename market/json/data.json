@@ -5,7 +5,7 @@
 	"prefix": "https://cdn.rawgit.com/xiaoshuangLi/files/master/market/img/",
 	"good": [{
 		"_id": "1",
-		"img": "g_gq.jpg",
+		"img": "g_jq.jpg",
 		"name": "双芯卷铅 精准工艺",
 		"category": "4",
 		"sku": [{
@@ -19,8 +19,8 @@
 		}],
 
 		"content": [
-			"con_gq.jpg",
-			"con_gq2.jpg"
+			"con_jq.jpg",
+			"con_jq2.jpg"
 		],
 		"price": "3.8"
 	}, {
