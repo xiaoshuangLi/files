@@ -303,14 +303,18 @@
 		"_id": "1",
 		"img": "c_diaogan.jpg",
 		"name": "鱼竿",
-		"children": [{
-			"_id": "2",
-			"name": "台钓-碳素杆"
-		}, {
-			"_id": "3",
-			"name": "台钓-玻璃钢"
-		}]
+		"children": []
+	}, 
+	{
+		"_id": "2",
+		"parent": "1",
+		"name": "台钓-碳素杆"
 	}, {
+		"_id": "3",
+		"parent": "1",
+		"name": "台钓-玻璃钢"
+	},
+	{
 		"_id": "4",
 		"img": "c_peijian.jpg",
 		"name": "配件"
@@ -318,17 +322,22 @@
 		"_id": "7",
 		"img": "c_gongju.jpg",
 		"name": "工具",
-		"children": [{
-			"_id": "8",
-			"name": "摘钩器"
-		}, {
-			"_id": "9",
-			"name": "绑钩器"
-		}, {
-			"_id": "10",
-			"name": "刀剪钳"
-		}]
+		"children": []
+	},
+	{
+		"_id": "8",
+		"parent": "7",
+		"name": "摘钩器"
 	}, {
+		"_id": "9",
+		"parent": "7",
+		"name": "绑钩器"
+	}, {
+		"_id": "10",
+		"parent": "7",
+		"name": "刀剪钳"
+	}, 
+	{
 		"_id": "11",
 		"img": "c_taozhuang.jpg",
 		"name": "套装",
