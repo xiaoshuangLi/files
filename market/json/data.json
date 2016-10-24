@@ -341,9 +341,11 @@
 		"_id": "11",
 		"img": "c_taozhuang.jpg",
 		"name": "套装",
-		"children": [{
-			"_id": "12",
-			"name": "台钓套装"
-		}]
+		"children": []
+	},
+	{
+		"_id": "12",
+		"parent": "11",
+		"name": "台钓套装"
 	}]
 }
