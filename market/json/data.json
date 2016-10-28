@@ -2,7 +2,7 @@
 	"title": "UZITT渔驻",
 	"logo": "logo.jpg",
 	"logo_thin": "logo_thin.png",
-	"prefix": "/",
+	"prefix": "/img/",
 	"good": [{
 		"_id": "1",
 		"img": "g_jq.jpg",
