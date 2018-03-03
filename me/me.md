@@ -73,7 +73,7 @@
 * **框架:** React。
 * 动画效果分割，一般动画效果可分为移动，拉伸，缩放，透明度切换, 由于Css 控制时,不同效果transform-origin可能不同，导致如此，这样易于开发以及扩展动画。
 * 使用React-transition-group 通过组建State控制动画切换。
-* 图片经过使用webpack压缩体积，并开启gizp压缩。
+* 图片经过使用webpack压缩体积，并开启gizp压缩
 
 #### H5移动版滴滴打车 / [https://h5.zuifuli.com/taxi](https://h5.zuifuli.com/taxi)
 
