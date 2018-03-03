@@ -2,10 +2,10 @@
 
 ### 个人信息
 #### 应聘前端工程师
-**姓&emsp;&emsp;名 :** 李晓爽
-**工作年限 :** 三年工作经验
-**手机电话 :** 13197913032
-**邮箱地址 :** 1157502759@qq.com
+**姓&emsp;&emsp;名 :** 李晓爽<br>
+**工作年限 :** 三年工作经验<br>
+**手机电话 :** 13197913032<br>
+**邮箱地址 :** 1157502759@qq.com<br>
 
 
 ### 专业技能
@@ -28,36 +28,64 @@
 ##### 项目描述：
 * 现将多个平台功能整合，用户统一入口登录，方便操作同时多个平台功能。
 
-##### 项目框架：
-* React, Ant-Design(用作UI组件库)。
+##### 项目需求：
+* 页面风格简洁，易于扩展后续功能。
+* 多个平台整合统一，支持内嵌其他平台页面。
+* 为方便用户操作，实现类似浏览器多个Tab切换功能，并本地保存用户操作，再次打开时还原窗口。
 
-##### 项目实践
-* 使用React-Router分割不同模块,配合Redux做到数据还原,提升用户在不同功能切换使用时用户体验。
-* 项目实现根据用户读取不同缓存数据初始化页面，过程中对于Redux的架构设计，以及函数式编程有深入理解。
+##### 项目难点
+* 如何整合多个平台功能。
+* 类似浏览器Tab，子级路由在当前Tab加载子级页面，同级路由新开Tab并加载页面。
+* 如何滤敏感数据。
+* 如何保存不同用户操作，难点不再于存储，在与如何正确的初始化对应用户信息（初始化在渲染页面之前，请求到用户数据在渲染之后）。
 
+##### 解决方案
+* **框架:** Reac + React Router + Redux; **UI框架:** Ant-Design。
+* 对于其他平台功能采用Iframe嵌套。对于平台自身功能使用 React-Router, 前端路由进行管理。
+* 针对Tab功能, React-Router 来监听路由变化, 并使用Redux记录路由历史, 并根据子级路由或同级路由更新Redux State.
+* 针对过滤数据, 整合需要记录的Redux Reducers,Reducers与需要记录数据的key一一对应，从而起到过滤作用。
+* 针对不同用户的操作, Redux 添加中间件, 监听State变化，确定用户信息后，更新State。（Redux并不推荐这样直接操作State，这只算一种Hack)。
 
 #### 企业内购商城 / [https://buy.zuifuli.com/custom/homepage](https://buy.zuifuli.com/custom/homepage)
 
 ##### 项目描述：
 * 搭建内购商城，可购买最福利自营，京东，网易严选三个平台商品。
 
-##### 项目框架：
-* React, Ant-Design(用作UI组件库)。
+##### 项目难点
+* 多个平台一套UI,多个主题。
+* 存在数据的配置,需要根据接口数据实时渲染 (类似，货币单位，货币比例等数据)。 
 
-##### 项目实践
-* 开发中了解Webpack Loader机制，并根据业务需求开发Loader插件([skin-loader](https://www.npmjs.com/package/skin-loader))。
+##### 解决方案
+* **框架:** Reac + React Router; **UI框架:** Ant-Design。
+* 针对多套主题，可使用[skin-loader](https://www.npmjs.com/package/skin-loader), 实现类似 Less Modify Variables 功能。([skin-loader](https://www.npmjs.com/package/skin-loader) 个人开发的前端动态主题解决方案)。
+* 针对数据配置，使用React HOC 创建高阶组件，在渲染后记录组件实例。当数据初始化或更新时，通过组件实例forceUpdate。
 
 #### 中秋活动 / [https://m.zuifuli.com/midautumn/awesome](https://m.zuifuli.com/midautumn/awesome)
 
 ##### 项目描述：
 * 开发移动版中秋活动页面。
 
-##### 项目框架：
-* React。
+##### 项目难点
+* 活动所需的动画效果。
+* 动画之间如何流畅的切换。
 
-##### 项目实践
-* 针对活动复杂动画效果进行分割，并封装组件，实现动画效果复用，提升动画开发效率，并易于修改。
-* 开发过程中使用数据状态控制动画切换,过程中深入了解React内部生命周期。
+##### 解决方案
+* **框架:** React。
+* 动画效果分割，一般动画效果可分为移动，拉伸，缩放，透明度切换, 由于Css 控制时,不同效果transform-origin可能不同，导致如此，这样易于开发以及扩展动画。
+* 使用React-transition-group 通过组建State控制动画切换。
+* 图片经过使用webpack压缩体积，并开启gizp压缩。
+
+#### H5移动版滴滴打车 / [https://h5.zuifuli.com/taxi](https://h5.zuifuli.com/taxi)
+
+##### 项目描述：
+* 开发H5移动版滴滴打车。
+
+##### 项目难点
+* React与其他框架配合使用。
+
+##### 解决方案
+* **框架:** Reac + 高德JS API。
+* 分割组件，将页面业务逻辑与地图处理逻辑分开。
 
 #### 个人项目
 * **[create-react-file](https://www.npmjs.com/package/create-react-file):** 命令行创建React组件工具，支持React, React-Router 不同版本切换。
