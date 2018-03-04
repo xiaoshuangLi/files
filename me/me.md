@@ -19,14 +19,14 @@
 * **热爱学习 :** 对于新知识，乐于接受，上手快。
 
 ### 个人实践
-* **[create-react-file](https://www.npmjs.com/package/create-react-file):** 使用node.js开发工具,通过命令行创建React组件，模块，以及Redux模块,以提高编码效率。。(第一版使用shell脚本开发，后改为node.js)。
+* **[create-react-file](https://www.npmjs.com/package/create-react-file):** 使用node.js开发工具,通过命令行创建React组件，模块，以及Redux模块,以提高编码效率。(第一版使用shell脚本开发，后改为node.js)
 * **[skin-loader](https://www.npmjs.com/package/skin-loader):** 开发Webpack，Sass的动态主题工具，实现类似 Less Modify Variables 功能。
-* **[晓地方](https://xiaodifang.club):** 在线简历模板网站,采用响应式布局,开启gzip优化文件体积,使用https协议。网站开发于一年前，开发中使用Sass function,用以生成复杂Css动画。
-* **路由翻页切换:** 采用React-router4.0 实现路由翻页切换。(现正尝试配合Wegl, 实现类似拼图切换效果，很难很好玩)。
-* **Web Compoent:** 尝试实现组件效果，由于React, Vue存在，以及兼容性问题，并未深入。其中Css隔离的特性值得关注。(个人感觉有点鸡肋，毕竟当今框架组件化模块已经存在，如果Web Component可以与框架完美结合，值得一试)。
+* **[晓地方](https://xiaodifang.club):** 在线简历模板网站,采用响应式布局,开启gzip优化文件体积,使用https协议。开发中使用Sass function,用以生成复杂Css动画。(开发于一年前)
+* **路由翻页切换:** 采用React-router4.0 实现路由翻页切换。(现正尝试配合Wegl, 实现类似拼图切换效果，很难很好玩)
+* **Web Compoent:** 尝试使用，由于React, Vue存在，以及兼容性问题，并未深入。其中Css隔离的特性值得关注。(个人感觉有点鸡肋，毕竟当今框架组件化模块已经存在，如果Web Component可以与框架完美结合，值得一试)
 * **Service Worker:** 用以动画效果计算，由于数据之间传输过慢而放弃。未来可能拥有访问Canvas权限，对于Web动画，游戏来说很有潜力。
-* **Webgl:** 建立简单Demo以理解基本概念，将来有可能替换HTML的技术。(学习中，处于入门阶段)。
-* **Web Socket:** 实现简单遥控器功能，手机控制投影仪网页。(一时兴起，并未深入，有个大胆的想法。)
+* **Webgl:** 建立简单Demo以理解基本概念，将来有可能替换HTML的技术。(学习中，处于入门阶段)
+* **Web Socket:** 实现简单遥控器功能，手机控制投影仪网页。(一时兴起，并未深入，有个大胆的想法)
 
 ### 工作经验
 * **上海云御信息科技有限公司 :** 工作2年, 负责前端功能实现。
