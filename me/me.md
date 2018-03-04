@@ -18,6 +18,16 @@
 * **码农思想 :** 善于总结并用代码偷懒，以解决代码中的重复工作。（[工具](https://www.npmjs.com/~xiaoshuang)）
 * **热爱学习 :** 对于新知识，乐于接受，上手快。
 
+### 个人实践
+* **[create-react-file](https://www.npmjs.com/package/create-react-file):** 使用node.js开发工具,通过命令行创建React组件，模块，以及Redux模块,以提高编码效率。。(第一版使用shell脚本开发，后改为node.js)。
+* **[skin-loader](https://www.npmjs.com/package/skin-loader):** 开发Webpack，Sass的动态主题工具，实现类似 Less Modify Variables 功能。
+* **[晓地方](https://xiaodifang.club):** 在线简历模板网站,采用响应式布局,开启gzip优化文件体积,使用https协议。网站开发于一年前，开发中使用Sass function,用以生成复杂Css动画。
+* **路由翻页切换:** 采用React-router4.0 实现路由翻页切换。(现正尝试配合Wegl, 实现类似拼图切换效果，很难很好玩)。
+* **Web Compoent:** 尝试实现组件效果，由于React, Vue存在，以及兼容性问题，并未深入。其中Css隔离的特性值得关注。(个人感觉有点鸡肋，毕竟当今框架组件化模块已经存在，如果Web Component可以与框架完美结合，值得一试)。
+* **Service Worker:** 用以动画效果计算，由于数据之间传输过慢而放弃。未来可能拥有访问Canvas权限，对于Web动画，游戏来说很有潜力。
+* **Webgl:** 建立简单Demo以理解基本概念，将来有可能替换HTML的技术。(学习中，处于入门阶段)。
+* **Web Socket:** 实现简单遥控器功能，手机控制投影仪网页。(一时兴起，并未深入，有个大胆的想法。)
+
 ### 工作经验
 * **上海云御信息科技有限公司 :** 工作2年, 负责前端功能实现。
 * **众安信息科技有限公司 :** 工作1年, 负责前端布局框架搭建以及前端功能实现。
@@ -35,7 +45,7 @@
 
 ##### 项目难点
 * 如何整合多个平台功能。
-* 类似浏览器Tab，子级路由在当前Tab加载子级页面，同级路由新开Tab并加载页面。
+* 显示类似浏览器多个标签页的功能。
 * 如何滤敏感数据。
 * 如何保存不同用户操作，难点不再于存储，在与如何正确的初始化对应用户信息（初始化在渲染页面之前，请求到用户数据在渲染之后）。
 
@@ -55,9 +65,10 @@
 * 多个平台一套UI,多个主题。
 * 存在数据的配置,需要根据接口数据实时渲染 (类似，货币单位，货币比例等数据)。 
 
+
 ##### 解决方案
 * **框架:** Reac + React Router; **UI框架:** Ant-Design。
-* 针对多套主题，可使用[skin-loader](https://www.npmjs.com/package/skin-loader), 实现类似 Less Modify Variables 功能。([skin-loader](https://www.npmjs.com/package/skin-loader) 个人开发的前端动态主题解决方案)。
+* 针对多套主题，可使用[skin-loader](https://www.npmjs.com/package/skin-loader), 实现类似 Less Modify Variables 功能。。
 * 针对数据配置，使用React HOC 创建高阶组件，在渲染后记录组件实例。当数据初始化或更新时，通过组件实例forceUpdate。
 
 #### 中秋活动 / [https://m.zuifuli.com/midautumn/awesome](https://m.zuifuli.com/midautumn/awesome)
@@ -73,22 +84,4 @@
 * **框架:** React。
 * 动画效果分割，一般动画效果可分为移动，拉伸，缩放，透明度切换, 由于Css 控制时,不同效果transform-origin可能不同，导致如此，这样易于开发以及扩展动画。
 * 使用React-transition-group 通过组建State控制动画切换。
-* 图片经过使用webpack压缩体积，并开启gizp压缩
-
-#### H5移动版滴滴打车 / [https://h5.zuifuli.com/taxi](https://h5.zuifuli.com/taxi)
-
-##### 项目描述：
-* 开发H5移动版滴滴打车。
-
-##### 项目难点
-* React与其他框架配合使用。
-
-##### 解决方案
-* **框架:** Reac + 高德JS API。
-* 分割组件，将页面业务逻辑与地图处理逻辑分开。
-
-#### 个人项目
-* **[create-react-file](https://www.npmjs.com/package/create-react-file):** 命令行创建React组件工具，支持React, React-Router 不同版本切换。
-* **[skin-loader](https://www.npmjs.com/package/skin-loader):** 前端动态主题解决方案，基于Webpack + Sass。(最终会被Css Variables 替代)
-* **[fondle](https://www.npmjs.com/package/fondle):** 针对移动端浏览器默认滚屏的解决方案（类似 微信，Safari）。
-* **[晓地方](https://xiaodifang.club):** 在线简历生成模板。
+* 图片经过使用webpack压缩体积，并开启gizp压缩。
