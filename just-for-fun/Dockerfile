@@ -18,16 +18,17 @@ RUN cp ./just-for-fun/.babelrc /root/app
 
 RUN npm install
 RUN npm run build
+RUN npm run start
 
 RUN npm install -g autoprefixer postcss-cli@2.6.0
 RUN postcss -c postcss.json
 
-RUN bash /root/app/ssl/.web.sh
-RUN 0 0 1 * * /root/app/ssl/.web.sh
+# RUN bash /root/app/ssl/.web.sh
+# RUN 0 0 1 * * /root/app/ssl/.web.sh
 
 # EXPOSE 80:8111
 
 EXPOSE 80
 EXPOSE 443
 
-CMD ["npm", "start"]
+CMD ["bash", "/root/app/ssl/.web.sh"]
