@@ -6,7 +6,7 @@ COPY . /root/app
 
 RUN apt-get update
 RUN apt-get install -y git nodejs npm nginx libpng-dev curl bash python openssl
-RUN npm install n -g
+RUN npm install n npm@3.10.10 -g
 RUN n 6.10.0
 
 RUN git config --global http.postbuffer 524288000
