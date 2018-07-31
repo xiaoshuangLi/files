@@ -10,8 +10,8 @@ RUN npm install n -g
 RUN n 6.10.0
 
 RUN git config --global http.postbuffer 524288000
-RUN git clone git@github.com:xiaoshuangLi/just-for-fun.git
-RUN git clone git@github.com:diafygi/acme-tiny.git
+RUN git clone https://github.com/xiaoshuangLi/just-for-fun.git
+RUN git clone https://github.com/diafygi/acme-tiny.git
 
 RUN cp -rf ./just-for-fun/* /root/app
 RUN cp ./just-for-fun/.babelrc /root/app
