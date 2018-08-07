@@ -1,24 +1,29 @@
 #!/bin/bash
 
-mv /root/jff/nginx/nginx.conf /etc/nginx/
-mv /root/jff/nginx/base /etc/nginx/sites-enabled/
+BASE='/home/ubuntu/GitRepo/files/just-for-fun'
 
-mkdir /root/jff/challenges
+cp $BASE/nginx/nginx.conf /etc/nginx/
+cp $BASE/nginx/base /etc/nginx/sites-enabled/
 
-openssl genrsa 4096 > /root/jff/account.key
-openssl genrsa 4096 > /root/jff/domain.key
-openssl req -new -sha256 -key /root/jff/domain.key -subj "/" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:xiaodifang.club,DNS:www.xiaodifang.club,DNS:xiaoxiaodifang.com,DNS:www.xiaoxiaodifang.com")) > /root/jff/domain.csr
+mkdir /just-for-fun
+mkdir /just-for-fun/jff
+mkdir /just-for-fun/jff/challenges
 
-touch /root/jff/chained.pem
-rm /root/jff/chained.pem
+git clone https://github.com/diafygi/acme-tiny.git
+cp -rf acme-tiny $BASE
 
-python /root/jff/acme_tiny.py --account-key /root/jff/account.key --csr /root/jff/domain.csr --acme-dir /root/jff/challenges/ > /tmp/signed.crt || exit
+openssl genrsa 4096 > /just-for-fun/jff/account.key
+openssl genrsa 4096 > /just-for-fun/jff/domain.key
+openssl req -new -sha256 -key /just-for-fun/jff/domain.key -subj "/" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf "[SAN]\nsubjectAltName=DNS:xiaodifang.club,DNS:www.xiaodifang.club,DNS:xiaoxiaodifang.com,DNS:www.xiaoxiaodifang.com")) > /just-for-fun/jff/domain.csr
+
+touch /just-for-fun/jff/chained.pem
+rm /just-for-fun/jff/chained.pem
+
+python $BASE/acme-tiny/acme_tiny.py --account-key /just-for-fun/jff/account.key --csr /just-for-fun/jff/domain.csr --acme-dir /just-for-fun/jff/challenges/ > /tmp/signed.crt || exit
 wget -O - https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem > intermediate.pem
-cat /tmp/signed.crt intermediate.pem > /root/jff/chained.pem
+cat /tmp/signed.crt intermediate.pem > /just-for-fun/jff/chained.pem
 
-mv /root/jff/nginx/jff /etc/nginx/sites-enabled/
+cp $BASE/nginx/jff /etc/nginx/sites-enabled/
 nginx
 nginx -s reload
 service nginx restart
-cd ../
-npm run start
