@@ -5,7 +5,7 @@ upstream node_jff {
 
 server {
     listen 80;
-    server_name xiaodifang.club www.xiaodifang.club;
+    server_name xiaodifang.club www.xiaodifang.club www.xiaoxiaodifang.com xiaoxiaodifang.com;
 
     location /.well-known/acme-challenge/ {
         alias /just-for-fun/jff/challenges/;

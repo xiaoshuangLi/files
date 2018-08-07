@@ -2,6 +2,11 @@
 
 BASE='/home/ubuntu/GitRepo/files/just-for-fun'
 
+apt-get install -y git nginx curl bash python openssl docker docker.io
+
+docker pull xiaoshuang/jff
+docker run -p 8111:8111 xiaoshuang/jff
+
 mkdir /var/log
 touch /var/log/acme_tiny.log
 
@@ -17,4 +22,6 @@ mkdir /just-for-fun
 mkdir /just-for-fun/jff
 mkdir /just-for-fun/jff/challenges
 
-0 0 1 * * $BASE/ssl/.all.sh 2>> /var/log/acme_tiny.log
+bash $BASE/ssl/.web.sh
+
+0 0 1 * * $BASE/ssl/.web.sh 2>> /var/log/acme_tiny.log

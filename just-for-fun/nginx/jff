@@ -5,7 +5,7 @@ upstream node_jff {
 
 server {
     listen 443;
-    server_name xiaodifang.club www.xiaodifang.club;
+    server_name xiaodifang.club www.xiaodifang.club www.xiaoxiaodifang.com xiaoxiaodifang.com;
 
     ssl on;
     ssl_certificate /root/app/acme-tiny/chained.pem;
@@ -57,7 +57,7 @@ server {
 
 server {
     listen 80;
-    server_name xiaodifang.club www.xiaodifang.club;
+    server_name xiaodifang.club www.xiaodifang.club www.xiaoxiaodifang.com xiaoxiaodifang.com;
     
     location / {
         rewrite ^(.*)$  https://$host$1 permanent;
