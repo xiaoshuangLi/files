@@ -1,0 +1,18 @@
+
+upstream node_jff {
+    server 127.0.0.1:8111;
+}
+
+server {
+    listen 80;
+    server_name xiaodifang.club www.xiaodifang.club;
+    
+    location / {
+        rewrite ^(.*)$  https://$host$1 permanent;
+    }
+
+    location /.well-known/acme-challenge/ {
+        alias /root/app/challenges/;
+        try_files $uri =404;
+    }
+}

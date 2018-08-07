@@ -15,15 +15,15 @@ RUN git clone https://github.com/diafygi/acme-tiny.git
 
 RUN cp -rf ./just-for-fun/* /root/app
 RUN cp ./just-for-fun/.babelrc /root/app
+RUN cp ./just-for-fun/.env /root/app
 
 RUN npm install
 RUN npm run build
-RUN npm run start
 
 RUN npm install -g autoprefixer postcss-cli@2.6.0
 RUN postcss -c postcss.json
 
-RUN 0 0 1 * * /root/app/ssl/.web.sh
+RUN bash /root/app/ssl/.timer.sh
 
 # EXPOSE 80:8111
 
