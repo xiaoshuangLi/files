@@ -24,4 +24,4 @@ RUN postcss -c postcss.json
 
 EXPOSE 8111
 
-CMD ["npm", "run start"]
+CMD ["npm", "start"]
