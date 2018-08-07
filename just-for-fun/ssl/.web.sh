@@ -4,6 +4,7 @@ BASE='/home/ubuntu/GitRepo/files/just-for-fun'
 
 cp $BASE/nginx/nginx.conf /etc/nginx/
 cp $BASE/nginx/base /etc/nginx/sites-enabled/
+nginx
 
 mkdir /just-for-fun
 mkdir /just-for-fun/jff
@@ -23,7 +24,7 @@ python $BASE/acme-tiny/acme_tiny.py --account-key /just-for-fun/jff/account.key 
 wget -O - https://letsencrypt.org/certs/lets-encrypt-x3-cross-signed.pem > intermediate.pem
 cat /tmp/signed.crt intermediate.pem > /just-for-fun/jff/chained.pem
 
+rm /etc/nginx/sites-enabled/base
 cp $BASE/nginx/jff /etc/nginx/sites-enabled/
-nginx
 nginx -s reload
 service nginx restart

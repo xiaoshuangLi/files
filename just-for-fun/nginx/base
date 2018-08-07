@@ -8,7 +8,7 @@ server {
     server_name xiaodifang.club www.xiaodifang.club;
 
     location /.well-known/acme-challenge/ {
-        alias /just-for-fun/jff/challenges;
+        alias /just-for-fun/jff/challenges/;
         try_files $uri =404;
     }
 }
