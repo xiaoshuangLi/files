@@ -1,0 +1,33 @@
+
+@font-face {font-family: "t-font";
+  src: url('//at.alicdn.com/t/font_1pytxr1h9d1v2t9.eot?t=1493777915330'); /* IE9*/
+  src: url('//at.alicdn.com/t/font_1pytxr1h9d1v2t9.eot?t=1493777915330#iefix') format('embedded-opentype'), /* IE6-IE8 */
+  url('//at.alicdn.com/t/font_1pytxr1h9d1v2t9.woff?t=1493777915330') format('woff'), /* chrome, firefox */
+  url('//at.alicdn.com/t/font_1pytxr1h9d1v2t9.ttf?t=1493777915330') format('truetype'), /* chrome, firefox, opera, Safari, Android, iOS 4.2+*/
+  url('//at.alicdn.com/t/font_1pytxr1h9d1v2t9.svg?t=1493777915330#t-font') format('svg'); /* iOS 4.1- */
+}
+
+.t-font {
+  font-family:"t-font" !important;
+  font-size:16px;
+  font-style:normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.t-font-minus:before { content: "\e757"; }
+
+.t-font-moon:before { content: "\e70c"; }
+
+.t-font-edit:before { content: "\e66e"; }
+
+.t-font-user:before { content: "\e64a"; }
+
+.t-font-sun:before { content: "\e659"; }
+
+.t-font-trash:before { content: "\e65b"; }
+
+.t-font-check:before { content: "\eef9"; }
+
+.t-font-warning:before { content: "\e672"; }
+
