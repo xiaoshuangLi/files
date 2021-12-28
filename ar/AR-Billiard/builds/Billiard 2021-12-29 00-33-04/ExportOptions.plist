@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>compileBitcode</key>
+	<true/>
+	<key>destination</key>
+	<string>export</string>
+	<key>manifest</key>
+	<dict>
+		<key>appURL</key>
+		<string>https://github.com/xiaoshuangLi/files/raw/feature/ar/ar/AR-Billiard/builds/Billiard%202021-12-28%2021-42-11/AR%20Billiard.ipa</string>
+		<key>displayImageURL</key>
+		<string>https://raw.githubusercontent.com/xiaoshuangLi/files/feature/ar/ar/AR-Billiard/imgs/1024x1024.png</string>
+		<key>fullSizeImageURL</key>
+		<string>https://raw.githubusercontent.com/xiaoshuangLi/files/feature/ar/ar/AR-Billiard/imgs/1024x1024.png</string>
+	</dict>
+	<key>method</key>
+	<string>ad-hoc</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>teamID</key>
+	<string>6D6DFUDGMF</string>
+	<key>thinning</key>
+	<string>iPhone10,1</string>
+</dict>
+</plist>
