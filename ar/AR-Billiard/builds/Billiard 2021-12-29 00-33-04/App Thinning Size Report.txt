@@ -1,8 +1,0 @@
-
-App Thinning Size Report for All Variants of Billiard
-
-Variant: AR Billiard-756837CD-86CE-4B6F-A26D-BF1A3F239846.ipa
-Supported variant descriptors: [device: iPhone8,1, os-version: 15.0], [device: iPhone9,1, os-version: 15.0], [device: iPhone8,4, os-version: 15.0], [device: iPhone9,3, os-version: 15.0], [device: iPhone10,1, os-version: 15.0], [device: iPhone12,8, os-version: 15.0], [device: iPhone10,4, os-version: 15.0], and [device: iPod9,1, os-version: 15.0]
-App + On Demand Resources size: 64.2 MB compressed, 65.8 MB uncompressed
-App size: 64.2 MB compressed, 65.8 MB uncompressed
-On Demand Resources size: Zero KB compressed, Zero KB uncompressed
