@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.1
+// @version      1.4.3
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -261,12 +261,16 @@
 
   function phaseHasFailed(phase, messages) {
     if (phase.startMsgIdx === undefined || phase.endMsgIdx === undefined) return false;
-    for (let mi = phase.startMsgIdx; mi <= phase.endMsgIdx && mi < messages.length; mi++) {
-      const msg = messages[mi];
-      if (!Array.isArray(msg.blocks)) continue;
-      for (const b of msg.blocks) {
+    function checkBlocks(blocks) {
+      if (!Array.isArray(blocks)) return false;
+      for (const b of blocks) {
         if (b.type === 'tool' && (b.success === false || b.error)) return true;
+        if (b.type === 'subagent' && checkBlocks(b.blocks)) return true;
       }
+      return false;
+    }
+    for (let mi = phase.startMsgIdx; mi <= phase.endMsgIdx && mi < messages.length; mi++) {
+      if (checkBlocks(messages[mi].blocks)) return true;
     }
     return false;
   }
@@ -493,12 +497,22 @@
     const isUser = msg.role === 'user';
     const roleLabel = isUser ? '👤 用户' : '🤖 智能体';
     const roleColor = isUser ? COLORS.user : COLORS.assistant;
-    const bgColor = isUser ? 'rgba(249,115,22,0.07)' : 'rgba(108,138,255,0.07)';
     const blocks = msg.blocks || [];
     const toolBlocks = blocks.filter(b => b.type === 'tool');
     const subagentBlocks = blocks.filter(b => b.type === 'subagent');
     const msgId = `msg-${idx}`;
     const isExpanded = expandedIds.has(msgId);
+    const failCount = countMsgFailed(msg);
+    const hasError = failCount > 0;
+
+    // Override background and border when the message has errors
+    const bgColor = hasError
+      ? COLORS.msgErrorBg
+      : (isUser ? 'rgba(249,115,22,0.07)' : 'rgba(108,138,255,0.07)');
+    const leftBorderColor = hasError ? COLORS.error : roleColor;
+    const outerBorder = hasError
+      ? `border:1px solid ${COLORS.error};border-left:4px solid ${COLORS.error};`
+      : `border:1px solid ${COLORS.border};border-left:4px solid ${roleColor};`;
 
     _jsonStore[msgId] = msg;
 
@@ -518,6 +532,11 @@
       ? `<span style="background:${COLORS.subagent}22;color:${COLORS.subagent};border-radius:3px;padding:1px 5px;font-size:10px;margin:1px">🤖 子智能体×${subagentBlocks.length}</span>`
       : '';
 
+    // Error badge — clicking expands the message and jumps to the first failed block
+    const errorBadge = hasError
+      ? `<span onclick="window.__agentVis.jumpToError('${msgId}')" title="展开并跳转到第一个错误" style="flex-shrink:0;background:${COLORS.error}22;color:${COLORS.error};border:1px solid ${COLORS.error};border-radius:3px;padding:1px 6px;font-size:10px;font-weight:700;cursor:pointer;margin-right:2px">❌ ${failCount}个错误</span>`
+      : '';
+
     let userContent = '';
     if (isUser && msg.content) {
       userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${escHtml(msg.content)}</div>`;
@@ -528,13 +547,14 @@
       : '';
 
     return `
-      <div style="margin:8px 0;border:1px solid ${COLORS.border};border-left:4px solid ${roleColor};border-radius:8px;background:${bgColor};overflow:hidden">
+      <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};overflow:hidden">
         <div style="display:flex;align-items:center;padding:10px 12px;gap:8px">
           <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
-            <span style="font-size:12px;font-weight:700;color:${roleColor};flex-shrink:0">${roleLabel}</span>
+            <span style="font-size:12px;font-weight:700;color:${leftBorderColor};flex-shrink:0">${roleLabel}</span>
             <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
             <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
           </div>
+          ${errorBadge}
           <span onclick="window.__agentVis.toggle('${msgId}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
           <button onclick="window.__agentVis.showJson('${msgId}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
@@ -815,6 +835,8 @@
   let panelVisible = false;
   let panelEl = null;
   let toggleBtnEl = null;
+  let _autoRefreshTimer = null;
+  const AUTO_REFRESH_MS = 10000;
 
   function createToggleButton() {
     const btn = document.createElement('button');
@@ -925,12 +947,31 @@
     }
   }
 
+  function startAutoRefresh() {
+    stopAutoRefresh();
+    _autoRefreshTimer = setInterval(() => {
+      if (panelVisible) renderPanel();
+    }, AUTO_REFRESH_MS);
+  }
+
+  function stopAutoRefresh() {
+    if (_autoRefreshTimer !== null) {
+      clearInterval(_autoRefreshTimer);
+      _autoRefreshTimer = null;
+    }
+  }
+
   function togglePanel() {
     panelVisible = !panelVisible;
     if (panelEl) {
       panelEl.style.transform = panelVisible ? 'translateX(0)' : 'translateX(100%)';
     }
-    if (panelVisible) renderPanel();
+    if (panelVisible) {
+      renderPanel();
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
   }
 
   /* ─────────────────────────────────────────────
@@ -945,12 +986,12 @@
       renderPanel();
     },
     refresh() {
-      expandedIds.clear();
       renderPanel();
     },
     close() {
       panelVisible = false;
       if (panelEl) panelEl.style.transform = 'translateX(100%)';
+      stopAutoRefresh();
     },
     toggleText(id) {
       const span = document.getElementById(`${ID}-text-preview-${id}`);
