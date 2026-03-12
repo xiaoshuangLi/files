@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.3.0
+// @version      1.4.1
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -27,6 +27,7 @@
     success: '#34d399',
     error: '#f87171',
     errorBg: 'rgba(248,113,113,0.07)',
+    msgErrorBg: 'rgba(248,113,113,0.13)',
     warning: '#fbbf24',
     text: '#e2e8f0',
     textMuted: '#8892a4',
@@ -185,35 +186,51 @@
     const PHASE_NAME_OFFSET = 3;
     const events = [];
 
+    // Recursively scan all blocks (including nested subagent blocks) so phases
+    // triggered by any command — not just plan — are captured.
+    function scanBlocks(blocks, mi, ts) {
+      if (!Array.isArray(blocks)) return;
+      for (const block of blocks) {
+        if (block.type === 'tool' && block.name === 'Bash') {
+          const params = tryParseJson(block.parameters) || {};
+          const cmd = params.command || block.compactParams || '';
+          const m = RE.exec(cmd);
+          if (m) {
+            const parts = m[1].split('/');
+            // Need at least: <prefix>/<currentPhase>/<nextPhase>/<status> = 4 parts
+            if (parts.length >= 4) {
+              const status = parts[parts.length - 1];
+              if (status === 'running' || status === 'done') {
+                // Current phase is the segment PHASE_NAME_OFFSET positions from the end
+                const phaseName = parts[parts.length - PHASE_NAME_OFFSET];
+                // Path prefix is everything before the current phase segment
+                const pathPrefix = parts.slice(0, parts.length - PHASE_NAME_OFFSET).join('/');
+                const label = block.shortResult || phaseName;
+                events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts });
+              }
+            }
+          }
+        }
+        // Recurse into subagent inner blocks
+        if (block.type === 'subagent' && Array.isArray(block.blocks)) {
+          scanBlocks(block.blocks, mi, ts);
+        }
+      }
+    }
+
     for (let mi = 0; mi < messages.length; mi++) {
       const msg = messages[mi];
-      if (!Array.isArray(msg.blocks)) continue;
-      for (const block of msg.blocks) {
-        if (block.type !== 'tool' || block.name !== 'Bash') continue;
-        const params = tryParseJson(block.parameters) || {};
-        const cmd = params.command || block.compactParams || '';
-        const m = RE.exec(cmd);
-        if (!m) continue;
-        const parts = m[1].split('/');
-        // Need at least: <prefix>/<currentPhase>/<nextPhase>/<status> = 4 parts
-        if (parts.length < 4) continue;
-        const status = parts[parts.length - 1];
-        if (status !== 'running' && status !== 'done') continue;
-        // Current phase is the segment PHASE_NAME_OFFSET positions from the end
-        const phaseName = parts[parts.length - PHASE_NAME_OFFSET];
-        // Path prefix is everything before the current phase segment
-        const pathPrefix = parts.slice(0, parts.length - PHASE_NAME_OFFSET).join('/');
-        const label = block.shortResult || phaseName;
-        events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts: msg.lastModified || 0 });
-      }
+      scanBlocks(msg.blocks, mi, msg.lastModified || 0);
     }
 
     const phaseMap = new Map();
     for (const ev of events) {
-      if (!phaseMap.has(ev.phaseName)) {
-        phaseMap.set(ev.phaseName, { label: ev.label, phaseName: ev.phaseName, pathPrefix: ev.pathPrefix });
+      // Key by full path (prefix + name) so "plan/阶段一" and "specify/阶段一" are distinct
+      const key = ev.pathPrefix ? `${ev.pathPrefix}/${ev.phaseName}` : ev.phaseName;
+      if (!phaseMap.has(key)) {
+        phaseMap.set(key, { label: ev.label, phaseName: ev.phaseName, pathPrefix: ev.pathPrefix });
       }
-      const phase = phaseMap.get(ev.phaseName);
+      const phase = phaseMap.get(key);
       if (ev.status === 'running' && !phase.startTs) {
         phase.startTs = ev.ts;
         phase.startMsgIdx = ev.msgIdx;
@@ -329,6 +346,21 @@
   /* ─────────────────────────────────────────────
    *  Block renderers
    * ───────────────────────────────────────────── */
+
+  // Count all failed tool calls in a message (recursively through subagents)
+  function countMsgFailed(msg) {
+    function count(blocks) {
+      if (!Array.isArray(blocks)) return 0;
+      let n = 0;
+      for (const b of blocks) {
+        if (b.type === 'tool' && (b.success === false || b.error)) n++;
+        if (b.type === 'subagent') n += count(b.blocks);
+      }
+      return n;
+    }
+    return count(msg.blocks);
+  }
+
   function renderToolBlock(block, msgIdx, blockIdx, opts) {
     const id = `tool-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
@@ -384,7 +416,7 @@
       : '';
 
     return `
-      <div style="margin:4px 0;background:${bgTint};border:1px solid ${isFailed ? COLORS.error : COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
+      <div id="${ID}-block-${id}"${isFailed ? ' data-fail="true"' : ''} style="margin:4px 0;background:${bgTint};border:1px solid ${isFailed ? COLORS.error : COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none;min-width:0;overflow:hidden">
             <span style="font-size:14px;flex-shrink:0">${icon}</span>
