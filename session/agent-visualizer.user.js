@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.0.0
+// @version      1.1.0
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -50,6 +50,10 @@
     AskUserQuestion: COLORS.ask,
     TodoWrite: COLORS.todo,
     ParseDocument: COLORS.parse,
+    Grep: '#a3e635',
+    Glob: '#a3e635',
+    LS: '#a3e635',
+    Edit: '#fb923c',
   };
 
   const TOOL_ICONS = {
@@ -60,6 +64,10 @@
     AskUserQuestion: '❓',
     TodoWrite: '📝',
     ParseDocument: '📑',
+    Grep: '🔍',
+    Glob: '🔎',
+    LS: '📁',
+    Edit: '✂️',
   };
 
   function toolColor(name) {
@@ -162,16 +170,69 @@
   }
 
   /* ─────────────────────────────────────────────
-   *  Rendering helpers
+   *  Phase extraction
+   *  Detects phase start/end from Bash calls to update-status.mjs:
+   *    running => phase started
+   *    done    => phase completed
+   * ───────────────────────────────────────────── */
+  function extractPhases(messages) {
+    // Matches Bash commands like:
+    //   node .specify/scripts/javascript/update-status.mjs specify/<phase>/<next>/running
+    //   node .specify/scripts/javascript/update-status.mjs specify/<phase>/<next>/done
+    // Captures: [1] = phase name (second-to-last path segment), [2] = status
+    const RE = /update-status\.mjs\s+\S*\/([^/\s]+)\/(running|done)/;
+    const events = [];
+
+    for (let mi = 0; mi < messages.length; mi++) {
+      const msg = messages[mi];
+      if (!Array.isArray(msg.blocks)) continue;
+      for (const block of msg.blocks) {
+        if (block.type !== 'tool' || block.name !== 'Bash') continue;
+        const params = tryParseJson(block.parameters) || {};
+        const cmd = params.command || block.compactParams || '';
+        const m = RE.exec(cmd);
+        if (!m) continue;
+        const phaseName = m[1];
+        const status = m[2];
+        const label = block.shortResult || phaseName;
+        events.push({ phaseName, label, status, msgIdx: mi, ts: msg.lastModified || 0 });
+      }
+    }
+
+    const phaseMap = new Map();
+    for (const ev of events) {
+      if (!phaseMap.has(ev.phaseName)) {
+        phaseMap.set(ev.phaseName, { label: ev.label, phaseName: ev.phaseName });
+      }
+      const phase = phaseMap.get(ev.phaseName);
+      if (ev.status === 'running' && !phase.startTs) {
+        phase.startTs = ev.ts;
+        phase.startMsgIdx = ev.msgIdx;
+      } else if (ev.status === 'done') {
+        phase.endTs = ev.ts;
+        phase.endMsgIdx = ev.msgIdx;
+      }
+    }
+
+    return Array.from(phaseMap.values()).map(p => ({
+      ...p,
+      duration: (p.startTs && p.endTs) ? p.endTs - p.startTs : null,
+    }));
+  }
+
+  /* ─────────────────────────────────────────────
+   *  Rendering state
    * ───────────────────────────────────────────── */
   let expandedIds = new Set();
 
-  // Counter-based unique ID to avoid Math.random() collisions
+  // Counter-based unique ID to avoid collisions
   let _textIdCounter = 0;
 
-  // In-memory store for text block full/preview content (avoids encoding large
-  // strings into onclick attributes and eliminates the related XSS surface)
+  // In-memory store for text block full/preview content (avoids XSS via onclick)
   const _textStore = {};
+
+  // In-memory store for JSON viewer data keyed by block/message ID
+  const _jsonStore = {};
 
   function toggleExpand(id) {
     if (expandedIds.has(id)) expandedIds.delete(id);
@@ -179,6 +240,61 @@
     rerenderContent();
   }
 
+  /* ─────────────────────────────────────────────
+   *  JSON viewer overlay
+   * ───────────────────────────────────────────── */
+  function showJsonOverlay(id) {
+    const data = _jsonStore[id];
+    if (!data) return;
+
+    const existing = document.getElementById(`${ID}-json-overlay`);
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = `${ID}-json-overlay`;
+    overlay.style.cssText = `
+      position:fixed;top:0;left:0;right:0;bottom:0;z-index:2147483648;
+      background:rgba(0,0,0,0.82);display:flex;align-items:center;justify-content:center;
+      padding:20px;
+    `;
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background:${COLORS.bg};border:1px solid ${COLORS.border};border-radius:8px;
+      max-width:680px;width:100%;max-height:80vh;display:flex;flex-direction:column;
+      box-shadow:0 20px 60px rgba(0,0,0,.8);
+    `;
+
+    const boxHeader = document.createElement('div');
+    boxHeader.style.cssText = `
+      padding:12px 16px;border-bottom:1px solid ${COLORS.border};
+      display:flex;align-items:center;gap:8px;flex-shrink:0;
+    `;
+    boxHeader.innerHTML = `
+      <span style="font-size:13px;font-weight:600;color:${COLORS.text};flex:1">原始 JSON 数据</span>
+      <button onclick="document.getElementById('${ID}-json-overlay').remove()" style="
+        background:transparent;border:none;color:${COLORS.textMuted};cursor:pointer;font-size:18px;
+      ">×</button>
+    `;
+
+    const pre = document.createElement('pre');
+    pre.style.cssText = `
+      margin:0;padding:16px;overflow:auto;font-size:11px;line-height:1.6;
+      color:${COLORS.success};background:transparent;font-family:monospace;
+      scrollbar-width:thin;scrollbar-color:${COLORS.border} transparent;
+    `;
+    pre.textContent = JSON.stringify(data, null, 2);
+
+    box.appendChild(boxHeader);
+    box.appendChild(pre);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  }
+
+  /* ─────────────────────────────────────────────
+   *  Block renderers
+   * ───────────────────────────────────────────── */
   function renderToolBlock(block, msgIdx, blockIdx) {
     const id = `tool-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
@@ -186,6 +302,8 @@
     const icon = toolIcon(block.name);
     const statusIcon = block.success === true ? '✅' : block.success === false ? '❌' : '⚪';
     const statusColor = block.success === true ? COLORS.success : block.success === false ? COLORS.error : COLORS.textMuted;
+
+    _jsonStore[id] = block;
 
     let detailHtml = '';
     if (isExpanded) {
@@ -195,18 +313,18 @@
       let paramsHtml = '';
       const parsedParams = tryParseJson(params);
       if (parsedParams) {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px">${escHtml(JSON.stringify(parsedParams, null, 2))}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${escHtml(JSON.stringify(parsedParams, null, 2))}</pre>`;
       } else {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px">${escHtml(params)}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${escHtml(params)}</pre>`;
       }
 
       let resultHtml = '';
       if (result) {
         const parsedResult = tryParseJson(result);
         if (parsedResult) {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px">${escHtml(JSON.stringify(parsedResult, null, 2))}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${escHtml(JSON.stringify(parsedResult, null, 2))}</pre>`;
         } else {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px">${escHtml(result)}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${escHtml(result)}</pre>`;
         }
       }
 
@@ -219,17 +337,20 @@
 
     const shortResult = block.shortResult || '';
     const shortResultHtml = shortResult
-      ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${escHtml(shortResult)}</span>`
+      ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${escHtml(shortResult)}</span>`
       : '';
 
     return `
       <div style="margin:4px 0;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
-        <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;padding:8px 10px;cursor:pointer;gap:6px;user-select:none">
-          <span style="font-size:14px">${icon}</span>
-          <span style="font-size:12px;font-weight:600;color:${color}">${escHtml(block.name || 'Tool')}</span>
-          <span style="font-size:12px;color:${statusColor}">${statusIcon}</span>
-          ${shortResultHtml}
-          <span style="margin-left:auto;font-size:11px;color:${COLORS.textMuted}">${isExpanded ? '▲' : '▼'}</span>
+        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
+          <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none;min-width:0;overflow:hidden">
+            <span style="font-size:14px;flex-shrink:0">${icon}</span>
+            <span style="font-size:12px;font-weight:600;color:${color};flex-shrink:0">${escHtml(block.name || 'Tool')}</span>
+            <span style="font-size:12px;color:${statusColor};flex-shrink:0">${statusIcon}</span>
+            ${shortResultHtml}
+          </div>
+          <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
+          <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
         ${detailHtml ? `<div style="padding:0 10px 10px">${detailHtml}</div>` : ''}
       </div>`;
@@ -242,6 +363,8 @@
     const statusIcon = block.status === 'completed' ? '✅' : '⏳';
     const indent = depth * 12;
 
+    _jsonStore[id] = block;
+
     let innerBlocksHtml = '';
     if (isExpanded && Array.isArray(block.blocks)) {
       innerBlocksHtml = block.blocks.map((b, bi) => renderBlock(b, `${msgIdx}-sub-${blockIdx}`, bi, depth + 1)).join('');
@@ -249,12 +372,15 @@
 
     return `
       <div style="margin:4px 0 4px ${indent}px;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${COLORS.subagent};border-radius:6px;overflow:hidden">
-        <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;padding:8px 10px;cursor:pointer;gap:6px;user-select:none">
-          <span style="font-size:14px">🤖</span>
-          <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${escHtml(block.subagentName || 'subagent')}</span>
-          <span style="font-size:12px;color:${statusColor}">${statusIcon} ${escHtml(block.status || '')}</span>
-          ${block.configuration && block.configuration.description ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:4px">${escHtml(block.configuration.description)}</span>` : ''}
-          <span style="margin-left:auto;font-size:11px;color:${COLORS.textMuted}">${isExpanded ? '▲' : '▼'}</span>
+        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
+          <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
+            <span style="font-size:14px">🤖</span>
+            <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${escHtml(block.subagentName || 'subagent')}</span>
+            <span style="font-size:12px;color:${statusColor}">${statusIcon} ${escHtml(block.status || '')}</span>
+            ${block.configuration && block.configuration.description ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:4px">${escHtml(block.configuration.description)}</span>` : ''}
+          </div>
+          <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
+          <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
         ${isExpanded && innerBlocksHtml ? `<div style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerBlocksHtml}</div>` : ''}
       </div>`;
@@ -262,16 +388,18 @@
 
   function renderTextBlock(block) {
     if (!block.content) return '';
-    const lines = block.content.split('\n');
+    // Collapse 3+ consecutive newlines (blank lines) into a single blank line
+    const content = block.content.replace(/\n{3,}/g, '\n\n');
+    const lines = content.split('\n');
     const previewLines = lines.slice(0, 3).join('\n');
     const hasMore = lines.length > 3;
-    const id = `text-${++_textIdCounter}`;
+    _textIdCounter += 1;
+    const id = `text-${_textIdCounter}`;
     if (hasMore) {
-      // Store plain text in memory; the toggle handler will use textContent
-      _textStore[id] = { full: block.content, preview: previewLines };
+      _textStore[id] = { full: content, preview: previewLines };
     }
     return `
-      <div style="padding:6px 10px;font-size:12px;color:${COLORS.textMuted};line-height:1.5;white-space:pre-wrap;word-break:break-word">
+      <div style="padding:5px 10px;font-size:12px;color:${COLORS.textMuted};line-height:1.5;white-space:pre-wrap;word-break:break-word">
         <span id="${ID}-text-preview-${id}">${escHtml(previewLines)}${hasMore ? '<span style="color:' + COLORS.textMuted + '">...</span>' : ''}</span>
         ${hasMore ? `<span onclick="window.__agentVis.toggleText('${id}')" style="cursor:pointer;color:${COLORS.accent};font-size:11px;margin-left:4px" id="${ID}-text-toggle-${id}"> [展开]</span>` : ''}
       </div>`;
@@ -295,6 +423,8 @@
     const msgId = `msg-${idx}`;
     const isExpanded = expandedIds.has(msgId);
 
+    _jsonStore[msgId] = msg;
+
     const toolSummary = toolBlocks.length > 0
       ? Object.entries(
           toolBlocks.reduce((acc, b) => {
@@ -313,7 +443,7 @@
 
     let userContent = '';
     if (isUser && msg.content) {
-      userContent = `<div style="padding:8px 12px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${escHtml(msg.content)}</div>`;
+      userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${escHtml(msg.content)}</div>`;
     }
 
     const blocksHtml = isExpanded
@@ -322,11 +452,14 @@
 
     return `
       <div style="margin:8px 0;border:1px solid ${COLORS.border};border-left:4px solid ${roleColor};border-radius:8px;background:${bgColor};overflow:hidden">
-        <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;padding:10px 12px;cursor:pointer;gap:8px;user-select:none">
-          <span style="font-size:12px;font-weight:700;color:${roleColor}">${roleLabel}</span>
-          <span style="font-size:10px;color:${COLORS.textMuted}">${formatTime(msg.lastModified)}</span>
-          <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
-          <span style="font-size:11px;color:${COLORS.textMuted}">${isExpanded ? '▲' : '▼'}</span>
+        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px">
+          <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
+            <span style="font-size:12px;font-weight:700;color:${roleColor};flex-shrink:0">${roleLabel}</span>
+            <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
+            <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
+          </div>
+          <span onclick="window.__agentVis.toggle('${msgId}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
+          <button onclick="window.__agentVis.showJson('${msgId}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
         ${userContent}
         ${isExpanded && blocksHtml ? `<div style="padding:0 8px 8px;border-top:1px solid ${COLORS.border}">${blocksHtml}</div>` : ''}
@@ -343,7 +476,7 @@
       const color = toolColor(name);
       return `
         <div style="display:flex;align-items:center;gap:8px;margin:4px 0">
-          <div style="width:90px;font-size:11px;color:${color};text-align:right;flex-shrink:0">${toolIcon(name)} ${escHtml(name)}</div>
+          <div style="width:100px;font-size:11px;color:${color};text-align:right;flex-shrink:0">${toolIcon(name)} ${escHtml(name)}</div>
           <div style="flex:1;background:${COLORS.border};border-radius:3px;height:14px;overflow:hidden">
             <div style="width:${pct}%;height:100%;background:${color};border-radius:3px;transition:width .3s"></div>
           </div>
@@ -352,7 +485,43 @@
     }).join('');
   }
 
-  function renderPerformance(stats) {
+  function renderPhasesTable(phases) {
+    if (!phases.length) {
+      return `<div style="color:${COLORS.textMuted};font-size:11px;padding:4px 0">未检测到阶段信息（需含 update-status.mjs 的 Bash 调用）</div>`;
+    }
+    const sorted = [...phases].sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    const maxDur = sorted.find(p => p.duration)?.duration || 1;
+
+    return sorted.map((p, i) => {
+      const pct = p.duration ? Math.round((p.duration / maxDur) * 100) : 0;
+      const durStr = p.duration ? formatDuration(p.duration) : '（同消息内）';
+      const rankColor = i === 0 ? COLORS.error : i === 1 ? COLORS.warning : COLORS.accent;
+      return `
+        <div style="margin:6px 0;padding:8px 10px;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${rankColor};border-radius:6px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span style="font-size:11px;font-weight:600;color:${COLORS.text};flex:1">${escHtml(p.label)}</span>
+            <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
+          </div>
+          ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden;margin-bottom:5px">
+            <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
+          </div>` : ''}
+          <div style="display:flex;gap:12px">
+            ${p.startTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">▶ 开始 ${formatTime(p.startTs)}</span>` : ''}
+            ${p.endTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">■ 完成 ${formatTime(p.endTs)}</span>` : ''}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function renderStatCard(label, value, color) {
+    return `
+      <div style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:18px;font-weight:700;color:${color}">${escHtml(String(value))}</div>
+        <div style="font-size:10px;color:${COLORS.textMuted};margin-top:2px">${label}</div>
+      </div>`;
+  }
+
+  function renderPerformance(stats, phases) {
     const maxCount = Math.max(...Object.values(stats.toolCounts), 1);
     return `
       <div style="padding:12px">
@@ -363,6 +532,10 @@
           ${renderStatCard('✅ 成功', stats.successTools, COLORS.success)}
           ${renderStatCard('❌ 失败', stats.failTools, COLORS.error)}
           ${renderStatCard('❓ 用户交互', stats.userInteractions, COLORS.ask)}
+        </div>
+        <div style="margin-bottom:16px">
+          <div style="font-size:12px;font-weight:600;color:${COLORS.text};margin-bottom:8px">🏁 阶段耗时（由长到短）</div>
+          ${renderPhasesTable(phases)}
         </div>
         <div style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:600;color:${COLORS.text};margin-bottom:8px">📊 工具调用分布</div>
@@ -376,14 +549,6 @@
       </div>`;
   }
 
-  function renderStatCard(label, value, color) {
-    return `
-      <div style="background:${COLORS.card};border:1px solid ${COLORS.border};border-radius:8px;padding:10px;text-align:center">
-        <div style="font-size:18px;font-weight:700;color:${color}">${escHtml(String(value))}</div>
-        <div style="font-size:10px;color:${COLORS.textMuted};margin-top:2px">${label}</div>
-      </div>`;
-  }
-
   /* ─────────────────────────────────────────────
    *  Tab views
    * ───────────────────────────────────────────── */
@@ -393,62 +558,40 @@
     return `<div style="padding:8px">${messages.map((m, i) => renderMessage(m, i)).join('')}</div>`;
   }
 
+  // Returns true if a message contains at least one AskUserQuestion (any depth)
+  function msgHasAskQuestion(msg) {
+    function check(blocks) {
+      if (!Array.isArray(blocks)) return false;
+      for (const b of blocks) {
+        if (b.type === 'tool' && b.name === 'AskUserQuestion') return true;
+        if (b.type === 'subagent' && check(b.blocks)) return true;
+      }
+      return false;
+    }
+    return check(msg.blocks);
+  }
+
+  // 交互 tab: show only messages containing AskUserQuestion, plus the immediately
+  // following user reply. Uses renderMessage so expand works correctly.
   function renderInteractions(messages) {
-    const interactions = [];
-    for (const msg of messages) {
-      if (!msg.blocks) continue;
-      for (const block of msg.blocks) {
-        if (block.type === 'tool' && block.name === 'AskUserQuestion') {
-          interactions.push(block);
+    const items = [];
+    const seenIdx = new Set();
+
+    for (let i = 0; i < messages.length; i++) {
+      if (msgHasAskQuestion(messages[i])) {
+        if (!seenIdx.has(i)) { items.push({ msg: messages[i], idx: i }); seenIdx.add(i); }
+        // Also include the immediately following user message (the answer)
+        if (i + 1 < messages.length && messages[i + 1].role === 'user' && !seenIdx.has(i + 1)) {
+          items.push({ msg: messages[i + 1], idx: i + 1 });
+          seenIdx.add(i + 1);
         }
       }
     }
-    if (interactions.length === 0) {
+
+    if (items.length === 0) {
       return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">暂无用户交互记录</div>`;
     }
-    return `<div style="padding:8px">${interactions.map((b, i) => renderInteractionCard(b, i)).join('')}</div>`;
-  }
-
-  function renderInteractionCard(block, idx) {
-    const paramsObj = tryParseJson(block.parameters) || {};
-    const questions = paramsObj.questions || [];
-    const resultObj = tryParseJson(block.result) || {};
-    const answers = resultObj.answers || {};
-    const id = `interaction-${idx}`;
-    const isExpanded = expandedIds.has(id);
-
-    const questionsHtml = questions.map((q, qi) => {
-      const answer = answers[q.question] || '';
-      const optionsHtml = (q.options || []).map(opt =>
-        `<div style="padding:4px 8px;margin:2px 0;border-radius:4px;font-size:11px;color:${COLORS.textMuted};background:${COLORS.bg};border:1px solid ${COLORS.border}">
-           <strong style="color:${COLORS.text}">${escHtml(opt.label)}</strong>
-           ${opt.description ? `<div style="font-size:10px;margin-top:1px">${escHtml(opt.description)}</div>` : ''}
-         </div>`
-      ).join('');
-
-      return `
-        <div style="margin-bottom:10px">
-          <div style="font-size:12px;font-weight:600;color:${COLORS.ask};margin-bottom:4px">❓ ${escHtml(q.question || '')}</div>
-          ${q.header ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:4px">主题: ${escHtml(q.header)}</div>` : ''}
-          ${optionsHtml}
-          ${answer ? `
-            <div style="margin-top:6px;padding:6px 8px;background:${COLORS.success}18;border:1px solid ${COLORS.success}44;border-radius:4px">
-              <div style="font-size:10px;color:${COLORS.success};margin-bottom:2px">👤 用户回答：</div>
-              <div style="font-size:12px;color:${COLORS.text};white-space:pre-wrap">${escHtml(answer)}</div>
-            </div>` : ''}
-        </div>`;
-    }).join('');
-
-    return `
-      <div style="margin:6px 0;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${COLORS.ask};border-radius:6px;overflow:hidden">
-        <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;padding:8px 12px;cursor:pointer;gap:6px;user-select:none">
-          <span style="font-size:13px">❓</span>
-          <span style="font-size:12px;font-weight:600;color:${COLORS.ask}">用户交互 #${idx + 1}</span>
-          <span style="font-size:11px;color:${COLORS.textMuted}">${questions.length} 个问题</span>
-          <span style="margin-left:auto;font-size:11px;color:${COLORS.textMuted}">${isExpanded ? '▲' : '▼'}</span>
-        </div>
-        ${isExpanded ? `<div style="padding:0 12px 12px;border-top:1px solid ${COLORS.border}">${questionsHtml}</div>` : ''}
-      </div>`;
+    return `<div style="padding:8px">${items.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   /* ─────────────────────────────────────────────
@@ -471,14 +614,18 @@
   }
 
   function buildContent(messages) {
-    // Reset text block state on each full render so IDs stay consistent
+    // Reset per-render state so IDs stay consistent
     _textIdCounter = 0;
     Object.keys(_textStore).forEach(k => delete _textStore[k]);
+    Object.keys(_jsonStore).forEach(k => delete _jsonStore[k]);
+
     const stats = computeStats(messages);
+    const phases = extractPhases(messages);
+
     let bodyHtml = '';
     if (currentTab === 'timeline') bodyHtml = renderTimeline(messages);
     else if (currentTab === 'interactions') bodyHtml = renderInteractions(messages);
-    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats);
+    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases);
     return { bodyHtml, stats };
   }
 
@@ -521,7 +668,7 @@
     panel.id = `${ID}-panel`;
     panel.style.cssText = `
       position:fixed;top:0;right:0;bottom:0;z-index:2147483646;
-      width:480px;max-width:100vw;
+      width:520px;max-width:100vw;
       background:${COLORS.panel};color:${COLORS.text};
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
       display:flex;flex-direction:column;
@@ -653,18 +800,23 @@
         btn.textContent = ' [展开]';
       }
     },
+    showJson(id) {
+      showJsonOverlay(id);
+    },
   };
 
   /* ─────────────────────────────────────────────
    *  Initialization
    * ───────────────────────────────────────────── */
   function init() {
-    // Inject global styles
     const style = document.createElement('style');
     style.textContent = `
       #${ID}-content::-webkit-scrollbar { width: 4px; }
       #${ID}-content::-webkit-scrollbar-track { background: transparent; }
       #${ID}-content::-webkit-scrollbar-thumb { background: ${COLORS.border}; border-radius: 2px; }
+      #${ID}-json-overlay pre::-webkit-scrollbar { width: 5px; height: 5px; }
+      #${ID}-json-overlay pre::-webkit-scrollbar-track { background: transparent; }
+      #${ID}-json-overlay pre::-webkit-scrollbar-thumb { background: ${COLORS.border}; border-radius: 2px; }
     `;
     document.head.appendChild(style);
 
