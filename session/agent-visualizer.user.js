@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.2.0
+// @version      1.3.0
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -26,6 +26,7 @@
     accentHover: '#8ba3ff',
     success: '#34d399',
     error: '#f87171',
+    errorBg: 'rgba(248,113,113,0.07)',
     warning: '#fbbf24',
     text: '#e2e8f0',
     textMuted: '#8892a4',
@@ -179,6 +180,9 @@
     // Command format: update-status.mjs specify/<currentPhase>/<nextPhase>/<status>
     // We capture the whole path then split so we reliably get <currentPhase> ([-3] from end).
     const RE = /update-status\.mjs\s+(\S+)/;
+    // Offsets from the end of the path segments:
+    //   [-1] = status, [-2] = nextPhase, [-3] = currentPhase; prefix = everything before [-3]
+    const PHASE_NAME_OFFSET = 3;
     const events = [];
 
     for (let mi = 0; mi < messages.length; mi++) {
@@ -195,17 +199,19 @@
         if (parts.length < 4) continue;
         const status = parts[parts.length - 1];
         if (status !== 'running' && status !== 'done') continue;
-        // Current phase is the segment third-from-end
-        const phaseName = parts[parts.length - 3];
+        // Current phase is the segment PHASE_NAME_OFFSET positions from the end
+        const phaseName = parts[parts.length - PHASE_NAME_OFFSET];
+        // Path prefix is everything before the current phase segment
+        const pathPrefix = parts.slice(0, parts.length - PHASE_NAME_OFFSET).join('/');
         const label = block.shortResult || phaseName;
-        events.push({ phaseName, label, status, msgIdx: mi, ts: msg.lastModified || 0 });
+        events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts: msg.lastModified || 0 });
       }
     }
 
     const phaseMap = new Map();
     for (const ev of events) {
       if (!phaseMap.has(ev.phaseName)) {
-        phaseMap.set(ev.phaseName, { label: ev.label, phaseName: ev.phaseName });
+        phaseMap.set(ev.phaseName, { label: ev.label, phaseName: ev.phaseName, pathPrefix: ev.pathPrefix });
       }
       const phase = phaseMap.get(ev.phaseName);
       if (ev.status === 'running' && !phase.startTs) {
@@ -220,6 +226,10 @@
     return Array.from(phaseMap.values()).map(p => {
       // Only report a positive duration; negative means lastModified is out of order
       const raw = (p.startTs && p.endTs) ? p.endTs - p.startTs : null;
+
+      // Detect if any tool block in the phase range failed (uses helper to avoid labeled break)
+      const hasFailed = phaseHasFailed(p, messages);
+
       return {
         ...p,
         duration: raw !== null && raw >= 0 ? raw : null,
@@ -227,8 +237,21 @@
         msgSpan: (p.startMsgIdx !== undefined && p.endMsgIdx !== undefined)
           ? p.endMsgIdx - p.startMsgIdx
           : null,
+        hasFailed,
       };
     });
+  }
+
+  function phaseHasFailed(phase, messages) {
+    if (phase.startMsgIdx === undefined || phase.endMsgIdx === undefined) return false;
+    for (let mi = phase.startMsgIdx; mi <= phase.endMsgIdx && mi < messages.length; mi++) {
+      const msg = messages[mi];
+      if (!Array.isArray(msg.blocks)) continue;
+      for (const b of msg.blocks) {
+        if (b.type === 'tool' && (b.success === false || b.error)) return true;
+      }
+    }
+    return false;
   }
 
   /* ─────────────────────────────────────────────
@@ -306,13 +329,16 @@
   /* ─────────────────────────────────────────────
    *  Block renderers
    * ───────────────────────────────────────────── */
-  function renderToolBlock(block, msgIdx, blockIdx) {
+  function renderToolBlock(block, msgIdx, blockIdx, opts) {
     const id = `tool-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
-    const color = toolColor(block.name);
+    const isFailed = block.success === false || !!block.error;
+    const color = isFailed ? COLORS.error : toolColor(block.name);
     const icon = toolIcon(block.name);
     const statusIcon = block.success === true ? '✅' : block.success === false ? '❌' : '⚪';
     const statusColor = block.success === true ? COLORS.success : block.success === false ? COLORS.error : COLORS.textMuted;
+    const bgTint = isFailed ? COLORS.errorBg : COLORS.card;
+    const msgTs = (opts && opts.ts) ? opts.ts : null;
 
     _jsonStore[id] = block;
 
@@ -320,6 +346,7 @@
     if (isExpanded) {
       const params = block.parameters || block.compactParams || '';
       const result = block.result || block.shortResult || '';
+      const errorMsg = block.error || '';
 
       let paramsHtml = '';
       const parsedParams = tryParseJson(params);
@@ -341,6 +368,7 @@
 
       detailHtml = `
         <div style="margin-top:8px;border-top:1px solid ${COLORS.border};padding-top:8px">
+          ${errorMsg ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.error};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">错误 (Error)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px;color:${COLORS.error};font-size:11px">${escHtml(errorMsg)}</div></div>` : ''}
           ${params ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">参数 (Parameters)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${paramsHtml}</div></div>` : ''}
           ${result ? `<div><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">结果 (Result)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${resultHtml}</div></div>` : ''}
         </div>`;
@@ -351,8 +379,12 @@
       ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${escHtml(shortResult)}</span>`
       : '';
 
+    const tsHtml = msgTs
+      ? `<span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0;margin-left:4px">${formatTime(msgTs)}</span>`
+      : '';
+
     return `
-      <div style="margin:4px 0;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
+      <div style="margin:4px 0;background:${bgTint};border:1px solid ${isFailed ? COLORS.error : COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none;min-width:0;overflow:hidden">
             <span style="font-size:14px;flex-shrink:0">${icon}</span>
@@ -360,6 +392,7 @@
             <span style="font-size:12px;color:${statusColor};flex-shrink:0">${statusIcon}</span>
             ${shortResultHtml}
           </div>
+          ${tsHtml}
           <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
           <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
@@ -501,11 +534,28 @@
     if (!phases.length) {
       return `<div style="color:${COLORS.textMuted};font-size:11px;padding:4px 0">未检测到阶段信息（需含 update-status.mjs 的 Bash 调用）</div>`;
     }
-    // Sort by duration desc; fall back to msgSpan desc when timestamps are unreliable.
-    // Multiply msgSpan by a large constant so it sorts above any ms-based duration
-    // while still keeping phases-with-duration ranked among themselves.
+
+    // Sort according to current phaseSort mode
+    // MSG_SPAN_WEIGHT: ensures a 1-message-span phase sorts higher than any realistic
+    // millisecond duration (max real session ~10 days = ~864_000_000 ms < 1e9).
     const MSG_SPAN_WEIGHT = 1e9;
     const sorted = [...phases].sort((a, b) => {
+      if (phaseSort === 'fail') {
+        // Failed phases first, then by duration desc
+        if (a.hasFailed !== b.hasFailed) return a.hasFailed ? -1 : 1;
+      }
+      if (phaseSort === 'alpha') {
+        return a.phaseName.localeCompare(b.phaseName, 'zh');
+      }
+      if (phaseSort === 'start') {
+        // Chronological order (by startMsgIdx)
+        const ia = a.startMsgIdx !== undefined ? a.startMsgIdx : Infinity;
+        const ib = b.startMsgIdx !== undefined ? b.startMsgIdx : Infinity;
+        return ia - ib;
+      }
+      // Default: duration desc; fall back to msgSpan desc when timestamps are unreliable.
+      // Multiply msgSpan by a large constant so it sorts above any ms-based duration
+      // while still keeping phases-with-duration ranked among themselves.
       const da = a.duration !== null ? a.duration : (a.msgSpan !== null ? a.msgSpan * MSG_SPAN_WEIGHT : 0);
       const db = b.duration !== null ? b.duration : (b.msgSpan !== null ? b.msgSpan * MSG_SPAN_WEIGHT : 0);
       return db - da;
@@ -520,7 +570,20 @@
       const pct = p.duration ? Math.round((p.duration / maxDur) * 100) : 0;
       const durStr = p.duration !== null ? formatDuration(p.duration)
         : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '（同消息内）';
-      const rankColor = i === 0 ? COLORS.error : i === 1 ? COLORS.warning : COLORS.accent;
+      // Failed phases always use error color border; otherwise rank-based color
+      const rankColor = p.hasFailed ? COLORS.error
+        : (i === 0 ? COLORS.error : i === 1 ? COLORS.warning : COLORS.accent);
+      const outerBorder = p.hasFailed
+        ? `border:2px solid ${COLORS.error};`
+        : `border:1px solid ${COLORS.border};`;
+      const failBadge = p.hasFailed
+        ? `<span style="font-size:10px;color:${COLORS.error};font-weight:700;flex-shrink:0">❌ 含失败</span>`
+        : '';
+
+      // Path prefix subtitle: show "specify/阶段一" style if we have a prefix
+      const pathSubtitle = p.pathPrefix
+        ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-top:2px;font-family:monospace">${escHtml(p.pathPrefix)}/${escHtml(p.phaseName)}</div>`
+        : '';
 
       // Collect tool blocks from all messages within this phase's message range
       let innerHtml = '';
@@ -534,7 +597,8 @@
           for (let bi = 0; bi < msg.blocks.length; bi++) {
             const b = msg.blocks[bi];
             if (b.type !== 'tool') continue;
-            toolRows.push(renderToolBlock(b, mi, bi));
+            // Pass message timestamp so each item shows its own time
+            toolRows.push(renderToolBlock(b, mi, bi, { ts: msg.lastModified || null }));
           }
         }
         innerHtml = toolRows.length
@@ -543,10 +607,14 @@
       }
 
       return `
-        <div style="margin:6px 0;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${rankColor};border-radius:6px;overflow:hidden">
+        <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${rankColor};border-radius:6px;overflow:hidden">
           <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration || p.startTs ? 4 : 0}px">
-              <span style="font-size:11px;font-weight:600;color:${COLORS.text};flex:1">${escHtml(p.label)}</span>
+              <div style="flex:1;min-width:0">
+                <span style="font-size:11px;font-weight:600;color:${COLORS.text}">${escHtml(p.label)}</span>
+                ${pathSubtitle}
+              </div>
+              ${failBadge}
               <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
               <span style="font-size:11px;color:${COLORS.textMuted};flex-shrink:0">${isExpanded ? '▲' : '▼'}</span>
             </div>
@@ -573,6 +641,24 @@
 
   function renderPerformance(stats, phases, messages) {
     const maxCount = Math.max(...Object.values(stats.toolCounts), 1);
+
+    const sortModes = [
+      { id: 'duration', label: '⏱ 耗时' },
+      { id: 'start',    label: '🕐 开始' },
+      { id: 'alpha',    label: 'A-Z' },
+      { id: 'fail',     label: '❌ 失败' },
+    ];
+    const sortBtns = sortModes.map(s => {
+      const active = phaseSort === s.id;
+      return `<button onclick="window.__agentVis.setPhaseSort('${s.id}')" style="
+        padding:3px 8px;font-size:10px;border-radius:4px;cursor:pointer;
+        border:1px solid ${active ? COLORS.accent : COLORS.border};
+        background:${active ? COLORS.accent : 'transparent'};
+        color:${active ? '#fff' : COLORS.textMuted};
+        font-weight:${active ? '700' : '400'};
+      ">${s.label}</button>`;
+    }).join('');
+
     return `
       <div style="padding:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:16px">
@@ -584,7 +670,10 @@
           ${renderStatCard('❓ 用户交互', stats.userInteractions, COLORS.ask)}
         </div>
         <div style="margin-bottom:16px">
-          <div style="font-size:12px;font-weight:600;color:${COLORS.text};margin-bottom:8px">🏁 阶段耗时（由长到短）</div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:600;color:${COLORS.text}">🏁 阶段耗时</span>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">${sortBtns}</div>
+          </div>
           ${renderPhasesTable(phases, messages)}
         </div>
         <div style="margin-bottom:12px">
@@ -603,6 +692,7 @@
    *  Tab views
    * ───────────────────────────────────────────── */
   let currentTab = 'timeline';
+  let phaseSort = 'duration'; // 'duration' | 'start' | 'alpha' | 'fail'
 
   function renderTimeline(messages) {
     return `<div style="padding:8px">${messages.map((m, i) => renderMessage(m, i)).join('')}</div>`;
@@ -852,6 +942,10 @@
     },
     showJson(id) {
       showJsonOverlay(id);
+    },
+    setPhaseSort(mode) {
+      phaseSort = mode;
+      rerenderContent();
     },
   };
 
