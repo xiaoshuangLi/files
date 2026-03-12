@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.4
+// @version      1.4.5
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -90,10 +90,17 @@
 
   function formatDuration(ms) {
     if (ms < 1000) return `${ms}ms`;
-    if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-    const m = Math.floor(ms / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    return `${m}m ${s}s`;
+    const totalSecs = Math.floor(ms / 1000);
+    const d = Math.floor(totalSecs / 86400);
+    const h = Math.floor((totalSecs % 86400) / 3600);
+    const m = Math.floor((totalSecs % 3600) / 60);
+    const s = totalSecs % 60;
+    const parts = [];
+    if (d > 0) parts.push(`${d}天`);
+    if (h > 0) parts.push(`${h}小时`);
+    if (m > 0) parts.push(`${m}分钟`);
+    if (s > 0 || parts.length === 0) parts.push(`${s}秒`);
+    return parts.join('');
   }
 
   function escHtml(str) {
@@ -326,12 +333,37 @@
       padding:12px 16px;border-bottom:1px solid ${COLORS.border};
       display:flex;align-items:center;gap:8px;flex-shrink:0;
     `;
-    boxHeader.innerHTML = `
-      <span style="font-size:13px;font-weight:600;color:${COLORS.text};flex:1">原始 JSON 数据</span>
-      <button onclick="document.getElementById('${ID}-json-overlay').remove()" style="
-        background:transparent;border:none;color:${COLORS.textMuted};cursor:pointer;font-size:18px;
-      ">×</button>
-    `;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.style.cssText = `font-size:13px;font-weight:600;color:${COLORS.text};flex:1`;
+    titleSpan.textContent = '原始 JSON 数据';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = '复制';
+    copyBtn.style.cssText = `background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};cursor:pointer;font-size:11px;border-radius:4px;padding:2px 10px;`;
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(JSON.stringify(data, null, 2)).then(() => {
+        copyBtn.textContent = '已复制！';
+        copyBtn.style.color = COLORS.success;
+        setTimeout(() => { copyBtn.textContent = '复制'; copyBtn.style.color = COLORS.textMuted; }, 1500);
+      }).catch(() => {
+        // Fallback: select text in the pre element
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      });
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.style.cssText = `background:transparent;border:none;color:${COLORS.textMuted};cursor:pointer;font-size:18px;`;
+    closeBtn.addEventListener('click', () => overlay.remove());
+
+    boxHeader.appendChild(titleSpan);
+    boxHeader.appendChild(copyBtn);
+    boxHeader.appendChild(closeBtn);
 
     const pre = document.createElement('pre');
     pre.style.cssText = `
@@ -351,18 +383,23 @@
    *  Block renderers
    * ───────────────────────────────────────────── */
 
-  // Count all failed tool calls in a message (recursively through subagents)
-  function countMsgFailed(msg) {
-    function count(blocks) {
-      if (!Array.isArray(blocks)) return 0;
+  // Count all failed tool calls in a block list (recursively through subagents)
+  function countBlocksFailed(blocks) {
+    function count(bs) {
+      if (!Array.isArray(bs)) return 0;
       let n = 0;
-      for (const b of blocks) {
+      for (const b of bs) {
         if (b.type === 'tool' && (b.success === false || b.error)) n++;
         if (b.type === 'subagent') n += count(b.blocks);
       }
       return n;
     }
-    return count(msg.blocks);
+    return count(blocks);
+  }
+
+  // Count all failed tool calls in a message (recursively through subagents)
+  function countMsgFailed(msg) {
+    return countBlocksFailed(msg.blocks);
   }
 
   function renderToolBlock(block, msgIdx, blockIdx, opts) {
@@ -442,6 +479,13 @@
     const statusColor = block.status === 'completed' ? COLORS.success : COLORS.warning;
     const statusIcon = block.status === 'completed' ? '✅' : '⏳';
     const indent = depth * 12;
+    const failCount = countBlocksFailed(block.blocks);
+    const hasError = failCount > 0;
+    const borderColor = hasError ? COLORS.error : COLORS.subagent;
+    const bgColor = hasError ? COLORS.errorBg : COLORS.card;
+    const errorBadge = hasError
+      ? `<span style="flex-shrink:0;background:${COLORS.error}22;color:${COLORS.error};border:1px solid ${COLORS.error};border-radius:3px;padding:1px 5px;font-size:10px;font-weight:700">❌ ${failCount}</span>`
+      : '';
 
     _jsonStore[id] = block;
 
@@ -451,7 +495,7 @@
     }
 
     return `
-      <div style="margin:4px 0 4px ${indent}px;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${COLORS.subagent};border-radius:6px;overflow:hidden">
+      <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden">
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
@@ -459,6 +503,7 @@
             <span style="font-size:12px;color:${statusColor}">${statusIcon} ${escHtml(block.status || '')}</span>
             ${block.configuration && block.configuration.description ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:4px">${escHtml(block.configuration.description)}</span>` : ''}
           </div>
+          ${errorBadge}
           <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
           <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
@@ -661,7 +706,7 @@
       return `
         <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${rankColor};border-radius:6px;overflow:hidden">
           <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration || p.startTs ? 4 : 0}px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration ? 4 : 0}px">
               <div style="flex:1;min-width:0">
                 <span style="font-size:11px;font-weight:600;color:${COLORS.text}">${escHtml(p.label)}</span>
                 ${pathSubtitle}
@@ -670,13 +715,9 @@
               <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
               <span style="font-size:11px;color:${COLORS.textMuted};flex-shrink:0">${isExpanded ? '▲' : '▼'}</span>
             </div>
-            ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden;margin-bottom:5px">
+            ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden">
               <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
             </div>` : ''}
-            <div style="display:flex;gap:12px">
-              ${p.startTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">▶ 开始 ${formatTime(p.startTs)}</span>` : ''}
-              ${p.endTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">■ 完成 ${formatTime(p.endTs)}</span>` : ''}
-            </div>
           </div>
           ${isExpanded ? `<div style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerHtml}</div>` : ''}
         </div>`;
@@ -1021,14 +1062,35 @@
       rerenderContent();
     },
     jumpToError(id) {
-      // Ensure the message is expanded so its blocks are rendered into the DOM
+      // Expand the message
       expandedIds.add(id);
+      const idx = parseInt(id.replace('msg-', ''), 10);
+      const messages = fetchMessages();
+      const msg = messages && messages[idx];
+
+      // Recursively expand subagent blocks on the path to the first error so
+      // their inner tool blocks are rendered into the DOM before we scroll.
+      // Returns true when an error was found under the given block list.
+      function expandErrorPath(idxStr, blocks) {
+        if (!Array.isArray(blocks)) return false;
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          if (b.type === 'tool' && (b.success === false || b.error)) return true;
+          if (b.type === 'subagent' && Array.isArray(b.blocks)) {
+            if (expandErrorPath(`${idxStr}-sub-${i}`, b.blocks)) {
+              expandedIds.add(`subagent-${idxStr}-${i}`);
+              return true;
+            }
+          }
+        }
+        return false;
+      }
+      if (msg) expandErrorPath(String(idx), msg.blocks);
+
       rerenderContent();
-      // After re-render, find the first failed block belonging to this message and scroll to it
-      // Block IDs are: "${ID}-block-tool-{msgIdx}-{blockIdx}"
-      const msgIdx = id.replace('msg-', '');
+      // After re-render, find the first [data-fail] block scoped to this message and scroll to it
       requestAnimationFrame(() => {
-        const failBlock = document.querySelector(`[id^="${ID}-block-tool-${msgIdx}-"][data-fail="true"]`);
+        const failBlock = document.querySelector(`[id^="${ID}-block-tool-${idx}-"][data-fail="true"]`);
         if (failBlock) {
           failBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
