@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.5
+// @version      1.4.6
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -181,20 +181,19 @@
   /* ─────────────────────────────────────────────
    *  Phase extraction
    *  Detects phase start/end from Bash calls to update-status.mjs:
-   *    running => phase started
-   *    done    => phase completed
+   *    running => new phase started (always creates a fresh entry)
+   *    done    => closes the most-recently opened phase with the same key (LIFO)
+   *  Phases that only have a running event (interrupted / still in progress)
+   *  are kept with endTs/endMsgIdx = null.
    * ───────────────────────────────────────────── */
   function extractPhases(messages) {
-    // Command format: update-status.mjs specify/<currentPhase>/<nextPhase>/<status>
-    // We capture the whole path then split so we reliably get <currentPhase> ([-3] from end).
+    // Command format: update-status.mjs <prefix>/<currentPhase>/<nextPhase>/<status>
     const RE = /update-status\.mjs\s+(\S+)/;
-    // Offsets from the end of the path segments:
-    //   [-1] = status, [-2] = nextPhase, [-3] = currentPhase; prefix = everything before [-3]
+    // [-1]=status, [-2]=nextPhase, [-3]=currentPhase; everything before [-3] is prefix
     const PHASE_NAME_OFFSET = 3;
     const events = [];
 
-    // Recursively scan all blocks (including nested subagent blocks) so phases
-    // triggered by any command — not just plan — are captured.
+    // Recursively scan all blocks (including nested subagent blocks).
     function scanBlocks(blocks, mi, ts) {
       if (!Array.isArray(blocks)) return;
       for (const block of blocks) {
@@ -208,9 +207,7 @@
             if (parts.length >= 4) {
               const status = parts[parts.length - 1];
               if (status === 'running' || status === 'done') {
-                // Current phase is the segment PHASE_NAME_OFFSET positions from the end
                 const phaseName = parts[parts.length - PHASE_NAME_OFFSET];
-                // Path prefix is everything before the current phase segment
                 const pathPrefix = parts.slice(0, parts.length - PHASE_NAME_OFFSET).join('/');
                 const label = block.shortResult || phaseName;
                 events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts });
@@ -218,7 +215,6 @@
             }
           }
         }
-        // Recurse into subagent inner blocks
         if (block.type === 'subagent' && Array.isArray(block.blocks)) {
           scanBlocks(block.blocks, mi, ts);
         }
@@ -230,35 +226,43 @@
       scanBlocks(msg.blocks, mi, msg.lastModified || 0);
     }
 
-    const phaseMap = new Map();
+    // Each 'running' event creates a new phase object.
+    // 'done' closes the most-recently opened phase with the same key (LIFO stack).
+    const phases = [];
+    const openStack = new Map(); // key -> phase[]
     for (const ev of events) {
-      // Key by full path (prefix + name) so "plan/阶段一" and "specify/阶段一" are distinct
       const key = ev.pathPrefix ? `${ev.pathPrefix}/${ev.phaseName}` : ev.phaseName;
-      if (!phaseMap.has(key)) {
-        phaseMap.set(key, { label: ev.label, phaseName: ev.phaseName, pathPrefix: ev.pathPrefix });
-      }
-      const phase = phaseMap.get(key);
-      if (ev.status === 'running' && !phase.startTs) {
-        phase.startTs = ev.ts;
-        phase.startMsgIdx = ev.msgIdx;
+      if (ev.status === 'running') {
+        const phase = {
+          label: ev.label,
+          phaseName: ev.phaseName,
+          pathPrefix: ev.pathPrefix,
+          startTs: ev.ts || null,
+          startMsgIdx: ev.msgIdx,
+          endTs: null,
+          endMsgIdx: null,
+        };
+        phases.push(phase);
+        if (!openStack.has(key)) openStack.set(key, []);
+        openStack.get(key).push(phase);
       } else if (ev.status === 'done') {
-        phase.endTs = ev.ts;
-        phase.endMsgIdx = ev.msgIdx;
+        const stack = openStack.get(key);
+        if (stack && stack.length > 0) {
+          const phase = stack.pop();
+          phase.endTs = ev.ts || null;
+          phase.endMsgIdx = ev.msgIdx;
+        }
       }
     }
 
-    return Array.from(phaseMap.values()).map(p => {
-      // Only report a positive duration; negative means lastModified is out of order
+    return phases.map(p => {
       const raw = (p.startTs && p.endTs) ? p.endTs - p.startTs : null;
-
-      // Detect if any tool block in the phase range failed (uses helper to avoid labeled break)
       const hasFailed = phaseHasFailed(p, messages);
-
       return {
         ...p,
         duration: raw !== null && raw >= 0 ? raw : null,
-        // Keep msg-index span for sorting even when timestamps are unreliable
-        msgSpan: (p.startMsgIdx !== undefined && p.endMsgIdx !== undefined)
+        // Use != null to exclude both null (in-progress) and undefined
+        msgSpan: (p.startMsgIdx != null && p.endMsgIdx != null)
           ? p.endMsgIdx - p.startMsgIdx
           : null,
         hasFailed,
@@ -267,7 +271,9 @@
   }
 
   function phaseHasFailed(phase, messages) {
-    if (phase.startMsgIdx === undefined || phase.endMsgIdx === undefined) return false;
+    if (phase.startMsgIdx == null) return false;
+    // endMsgIdx is null for in-progress phases — scan to end of session
+    const endIdx = phase.endMsgIdx != null ? phase.endMsgIdx : messages.length - 1;
     function checkBlocks(blocks) {
       if (!Array.isArray(blocks)) return false;
       for (const b of blocks) {
@@ -276,7 +282,7 @@
       }
       return false;
     }
-    for (let mi = phase.startMsgIdx; mi <= phase.endMsgIdx && mi < messages.length; mi++) {
+    for (let mi = phase.startMsgIdx; mi <= endIdx && mi < messages.length; mi++) {
       if (checkBlocks(messages[mi].blocks)) return true;
     }
     return false;
@@ -645,9 +651,9 @@
         return a.phaseName.localeCompare(b.phaseName, 'zh');
       }
       if (phaseSort === 'start') {
-        // Chronological order (by startMsgIdx)
-        const ia = a.startMsgIdx !== undefined ? a.startMsgIdx : Infinity;
-        const ib = b.startMsgIdx !== undefined ? b.startMsgIdx : Infinity;
+        // Chronological order (by startMsgIdx — always set by extractPhases)
+        const ia = a.startMsgIdx != null ? a.startMsgIdx : Infinity;
+        const ib = b.startMsgIdx != null ? b.startMsgIdx : Infinity;
         return ia - ib;
       }
       // Default: duration desc; fall back to msgSpan desc when timestamps are unreliable.
@@ -665,11 +671,13 @@
       _jsonStore[phaseId] = p;
 
       const pct = p.duration ? Math.round((p.duration / maxDur) * 100) : 0;
+      // Check in-progress FIRST so null endMsgIdx always shows '进行中' regardless of msgSpan
       const durStr = p.duration !== null ? formatDuration(p.duration)
-        : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '（同消息内）';
-      // Failed phases always use error color border; otherwise rank-based color
+        : p.endMsgIdx === null ? '进行中'
+        : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '—';
+      // Failed phases use error color; otherwise use rank-based color (top = warning, rest = accent)
       const rankColor = p.hasFailed ? COLORS.error
-        : (i === 0 ? COLORS.error : i === 1 ? COLORS.warning : COLORS.accent);
+        : (i === 0 ? COLORS.warning : COLORS.accent);
       const outerBorder = p.hasFailed
         ? `border:2px solid ${COLORS.error};`
         : `border:1px solid ${COLORS.border};`;
@@ -685,8 +693,8 @@
       // Collect tool blocks from all messages within this phase's message range
       let innerHtml = '';
       if (isExpanded) {
-        const start = p.startMsgIdx !== undefined ? p.startMsgIdx : 0;
-        const end = p.endMsgIdx !== undefined ? p.endMsgIdx : (messages.length - 1);
+        const start = p.startMsgIdx != null ? p.startMsgIdx : 0;
+        const end = p.endMsgIdx != null ? p.endMsgIdx : (messages.length - 1);
         const toolRows = [];
         for (let mi = start; mi <= end && mi < messages.length; mi++) {
           const msg = messages[mi];
