@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.1.0
+// @version      1.2.0
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -176,11 +176,9 @@
    *    done    => phase completed
    * ───────────────────────────────────────────── */
   function extractPhases(messages) {
-    // Matches Bash commands like:
-    //   node .specify/scripts/javascript/update-status.mjs specify/<phase>/<next>/running
-    //   node .specify/scripts/javascript/update-status.mjs specify/<phase>/<next>/done
-    // Captures: [1] = phase name (second-to-last path segment), [2] = status
-    const RE = /update-status\.mjs\s+\S*\/([^/\s]+)\/(running|done)/;
+    // Command format: update-status.mjs specify/<currentPhase>/<nextPhase>/<status>
+    // We capture the whole path then split so we reliably get <currentPhase> ([-3] from end).
+    const RE = /update-status\.mjs\s+(\S+)/;
     const events = [];
 
     for (let mi = 0; mi < messages.length; mi++) {
@@ -192,8 +190,13 @@
         const cmd = params.command || block.compactParams || '';
         const m = RE.exec(cmd);
         if (!m) continue;
-        const phaseName = m[1];
-        const status = m[2];
+        const parts = m[1].split('/');
+        // Need at least: <prefix>/<currentPhase>/<nextPhase>/<status> = 4 parts
+        if (parts.length < 4) continue;
+        const status = parts[parts.length - 1];
+        if (status !== 'running' && status !== 'done') continue;
+        // Current phase is the segment third-from-end
+        const phaseName = parts[parts.length - 3];
         const label = block.shortResult || phaseName;
         events.push({ phaseName, label, status, msgIdx: mi, ts: msg.lastModified || 0 });
       }
@@ -214,10 +217,18 @@
       }
     }
 
-    return Array.from(phaseMap.values()).map(p => ({
-      ...p,
-      duration: (p.startTs && p.endTs) ? p.endTs - p.startTs : null,
-    }));
+    return Array.from(phaseMap.values()).map(p => {
+      // Only report a positive duration; negative means lastModified is out of order
+      const raw = (p.startTs && p.endTs) ? p.endTs - p.startTs : null;
+      return {
+        ...p,
+        duration: raw !== null && raw >= 0 ? raw : null,
+        // Keep msg-index span for sorting even when timestamps are unreliable
+        msgSpan: (p.startMsgIdx !== undefined && p.endMsgIdx !== undefined)
+          ? p.endMsgIdx - p.startMsgIdx
+          : null,
+      };
+    });
   }
 
   /* ─────────────────────────────────────────────
@@ -388,8 +399,9 @@
 
   function renderTextBlock(block) {
     if (!block.content) return '';
-    // Collapse 3+ consecutive newlines (blank lines) into a single blank line
-    const content = block.content.replace(/\n{3,}/g, '\n\n');
+    // Collapse 3+ consecutive newlines then trim trailing whitespace to avoid
+    // blank padding at the bottom of each text block
+    const content = block.content.replace(/\n{3,}/g, '\n\n').trimEnd();
     const lines = content.split('\n');
     const previewLines = lines.slice(0, 3).join('\n');
     const hasMore = lines.length > 3;
@@ -485,30 +497,68 @@
     }).join('');
   }
 
-  function renderPhasesTable(phases) {
+  function renderPhasesTable(phases, messages) {
     if (!phases.length) {
       return `<div style="color:${COLORS.textMuted};font-size:11px;padding:4px 0">未检测到阶段信息（需含 update-status.mjs 的 Bash 调用）</div>`;
     }
-    const sorted = [...phases].sort((a, b) => (b.duration || 0) - (a.duration || 0));
-    const maxDur = sorted.find(p => p.duration)?.duration || 1;
+    // Sort by duration desc; fall back to msgSpan desc when timestamps are unreliable.
+    // Multiply msgSpan by a large constant so it sorts above any ms-based duration
+    // while still keeping phases-with-duration ranked among themselves.
+    const MSG_SPAN_WEIGHT = 1e9;
+    const sorted = [...phases].sort((a, b) => {
+      const da = a.duration !== null ? a.duration : (a.msgSpan !== null ? a.msgSpan * MSG_SPAN_WEIGHT : 0);
+      const db = b.duration !== null ? b.duration : (b.msgSpan !== null ? b.msgSpan * MSG_SPAN_WEIGHT : 0);
+      return db - da;
+    });
+    const maxDur = sorted.find(p => p.duration !== null && p.duration > 0)?.duration || 1;
 
     return sorted.map((p, i) => {
+      const phaseId = `phase-${i}`;
+      const isExpanded = expandedIds.has(phaseId);
+      _jsonStore[phaseId] = p;
+
       const pct = p.duration ? Math.round((p.duration / maxDur) * 100) : 0;
-      const durStr = p.duration ? formatDuration(p.duration) : '（同消息内）';
+      const durStr = p.duration !== null ? formatDuration(p.duration)
+        : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '（同消息内）';
       const rankColor = i === 0 ? COLORS.error : i === 1 ? COLORS.warning : COLORS.accent;
+
+      // Collect tool blocks from all messages within this phase's message range
+      let innerHtml = '';
+      if (isExpanded) {
+        const start = p.startMsgIdx !== undefined ? p.startMsgIdx : 0;
+        const end = p.endMsgIdx !== undefined ? p.endMsgIdx : (messages.length - 1);
+        const toolRows = [];
+        for (let mi = start; mi <= end && mi < messages.length; mi++) {
+          const msg = messages[mi];
+          if (!Array.isArray(msg.blocks)) continue;
+          for (let bi = 0; bi < msg.blocks.length; bi++) {
+            const b = msg.blocks[bi];
+            if (b.type !== 'tool') continue;
+            toolRows.push(renderToolBlock(b, mi, bi));
+          }
+        }
+        innerHtml = toolRows.length
+          ? `<div style="padding:4px 0">${toolRows.join('')}</div>`
+          : `<div style="padding:8px 0;font-size:11px;color:${COLORS.textMuted}">此阶段无工具调用记录</div>`;
+      }
+
       return `
-        <div style="margin:6px 0;padding:8px 10px;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${rankColor};border-radius:6px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-            <span style="font-size:11px;font-weight:600;color:${COLORS.text};flex:1">${escHtml(p.label)}</span>
-            <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
+        <div style="margin:6px 0;background:${COLORS.card};border:1px solid ${COLORS.border};border-left:3px solid ${rankColor};border-radius:6px;overflow:hidden">
+          <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration || p.startTs ? 4 : 0}px">
+              <span style="font-size:11px;font-weight:600;color:${COLORS.text};flex:1">${escHtml(p.label)}</span>
+              <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
+              <span style="font-size:11px;color:${COLORS.textMuted};flex-shrink:0">${isExpanded ? '▲' : '▼'}</span>
+            </div>
+            ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden;margin-bottom:5px">
+              <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
+            </div>` : ''}
+            <div style="display:flex;gap:12px">
+              ${p.startTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">▶ 开始 ${formatTime(p.startTs)}</span>` : ''}
+              ${p.endTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">■ 完成 ${formatTime(p.endTs)}</span>` : ''}
+            </div>
           </div>
-          ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden;margin-bottom:5px">
-            <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
-          </div>` : ''}
-          <div style="display:flex;gap:12px">
-            ${p.startTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">▶ 开始 ${formatTime(p.startTs)}</span>` : ''}
-            ${p.endTs ? `<span style="font-size:10px;color:${COLORS.textMuted}">■ 完成 ${formatTime(p.endTs)}</span>` : ''}
-          </div>
+          ${isExpanded ? `<div style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerHtml}</div>` : ''}
         </div>`;
     }).join('');
   }
@@ -521,7 +571,7 @@
       </div>`;
   }
 
-  function renderPerformance(stats, phases) {
+  function renderPerformance(stats, phases, messages) {
     const maxCount = Math.max(...Object.values(stats.toolCounts), 1);
     return `
       <div style="padding:12px">
@@ -535,7 +585,7 @@
         </div>
         <div style="margin-bottom:16px">
           <div style="font-size:12px;font-weight:600;color:${COLORS.text};margin-bottom:8px">🏁 阶段耗时（由长到短）</div>
-          ${renderPhasesTable(phases)}
+          ${renderPhasesTable(phases, messages)}
         </div>
         <div style="margin-bottom:12px">
           <div style="font-size:12px;font-weight:600;color:${COLORS.text};margin-bottom:8px">📊 工具调用分布</div>
@@ -625,7 +675,7 @@
     let bodyHtml = '';
     if (currentTab === 'timeline') bodyHtml = renderTimeline(messages);
     else if (currentTab === 'interactions') bodyHtml = renderInteractions(messages);
-    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases);
+    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases, messages);
     return { bodyHtml, stats };
   }
 
