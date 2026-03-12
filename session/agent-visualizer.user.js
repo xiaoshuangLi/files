@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.3
+// @version      1.4.4
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -1019,6 +1019,20 @@
     setPhaseSort(mode) {
       phaseSort = mode;
       rerenderContent();
+    },
+    jumpToError(id) {
+      // Ensure the message is expanded so its blocks are rendered into the DOM
+      expandedIds.add(id);
+      rerenderContent();
+      // After re-render, find the first failed block belonging to this message and scroll to it
+      // Block IDs are: "${ID}-block-tool-{msgIdx}-{blockIdx}"
+      const msgIdx = id.replace('msg-', '');
+      requestAnimationFrame(() => {
+        const failBlock = document.querySelector(`[id^="${ID}-block-tool-${msgIdx}-"][data-fail="true"]`);
+        if (failBlock) {
+          failBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+      });
     },
   };
 
