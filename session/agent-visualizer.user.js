@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.6
+// @version      1.4.7
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -180,11 +180,10 @@
 
   /* ─────────────────────────────────────────────
    *  Phase extraction
-   *  Detects phase start/end from Bash calls to update-status.mjs:
-   *    running => new phase started (always creates a fresh entry)
-   *    done    => closes the most-recently opened phase with the same key (LIFO)
-   *  Phases that only have a running event (interrupted / still in progress)
-   *  are kept with endTs/endMsgIdx = null.
+   *  The agent is in exactly one phase at a time. Rules:
+   *  1. ANY 'running' event closes whatever phase is currently open, then opens a new one.
+   *  2. A 'done' for key X closes the current phase only when its key matches X.
+   *  3. A phase still open after all events extends to the last message.
    * ───────────────────────────────────────────── */
   function extractPhases(messages) {
     // Command format: update-status.mjs <prefix>/<currentPhase>/<nextPhase>/<status>
@@ -223,17 +222,24 @@
 
     for (let mi = 0; mi < messages.length; mi++) {
       const msg = messages[mi];
-      scanBlocks(msg.blocks, mi, msg.lastModified || 0);
+      scanBlocks(msg.blocks, mi, msg.lastModified || null);
     }
 
-    // Each 'running' event creates a new phase object.
-    // 'done' closes the most-recently opened phase with the same key (LIFO stack).
+    // Single "currently active" phase pointer — the agent is in at most one phase at a time.
+    // Rule 1: ANY 'running' closes currentPhase (regardless of key) and opens a new one.
+    // Rule 2: 'done' for key X closes currentPhase only when its key matches X.
     const phases = [];
-    const openStack = new Map(); // key -> phase[]
+    let currentPhase = null; // the most recently opened, not yet closed phase
     for (const ev of events) {
       const key = ev.pathPrefix ? `${ev.pathPrefix}/${ev.phaseName}` : ev.phaseName;
       if (ev.status === 'running') {
-        const phase = {
+        // Rule 1: close whatever phase is currently active
+        if (currentPhase && currentPhase.endMsgIdx == null) {
+          currentPhase.endTs = ev.ts || null;
+          currentPhase.endMsgIdx = ev.msgIdx;
+        }
+        // Open a fresh phase
+        currentPhase = {
           label: ev.label,
           phaseName: ev.phaseName,
           pathPrefix: ev.pathPrefix,
@@ -242,17 +248,27 @@
           endTs: null,
           endMsgIdx: null,
         };
-        phases.push(phase);
-        if (!openStack.has(key)) openStack.set(key, []);
-        openStack.get(key).push(phase);
+        phases.push(currentPhase);
       } else if (ev.status === 'done') {
-        const stack = openStack.get(key);
-        if (stack && stack.length > 0) {
-          const phase = stack.pop();
-          phase.endTs = ev.ts || null;
-          phase.endMsgIdx = ev.msgIdx;
+        // Rule 2: close currentPhase only when the key matches
+        if (currentPhase && currentPhase.endMsgIdx == null) {
+          const currentKey = currentPhase.pathPrefix
+            ? `${currentPhase.pathPrefix}/${currentPhase.phaseName}`
+            : currentPhase.phaseName;
+          if (currentKey === key) {
+            currentPhase.endTs = ev.ts || null;
+            currentPhase.endMsgIdx = ev.msgIdx;
+            currentPhase = null;
+          }
         }
       }
+    }
+
+    // Rule 3: the phase still active after all events extends to the last message
+    if (currentPhase && currentPhase.endMsgIdx == null && messages.length > 0) {
+      const lastIdx = messages.length - 1;
+      currentPhase.endTs = messages[lastIdx].lastModified || null;
+      currentPhase.endMsgIdx = lastIdx;
     }
 
     return phases.map(p => {
@@ -261,7 +277,7 @@
       return {
         ...p,
         duration: raw !== null && raw >= 0 ? raw : null,
-        // Use != null to exclude both null (in-progress) and undefined
+        // Use != null to exclude both null and undefined
         msgSpan: (p.startMsgIdx != null && p.endMsgIdx != null)
           ? p.endMsgIdx - p.startMsgIdx
           : null,
@@ -373,11 +389,33 @@
 
     const pre = document.createElement('pre');
     pre.style.cssText = `
+      flex:1;min-height:0;
       margin:0;padding:16px;overflow:auto;font-size:11px;line-height:1.6;
       color:${COLORS.success};background:transparent;font-family:monospace;
       scrollbar-width:thin;scrollbar-color:${COLORS.border} transparent;
     `;
     pre.textContent = JSON.stringify(data, null, 2);
+
+    // Ctrl+A / Cmd+A while overlay is open → select all text in the pre
+    function onKeyDown(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+        e.preventDefault();
+        const range = document.createRange();
+        range.selectNodeContents(pre);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      if (e.key === 'Escape') overlay.remove();
+    }
+    document.addEventListener('keydown', onKeyDown);
+    // Clean up keydown listener when the overlay is removed from the DOM
+    new MutationObserver((_, obs) => {
+      if (!document.contains(overlay)) {
+        document.removeEventListener('keydown', onKeyDown);
+        obs.disconnect();
+      }
+    }).observe(document.body, { childList: true, subtree: true });
 
     box.appendChild(boxHeader);
     box.appendChild(pre);
@@ -873,9 +911,11 @@
   function rerenderContent() {
     const contentEl = document.getElementById(`${ID}-content`);
     if (!contentEl) return;
+    const scrollTop = contentEl.scrollTop;
     const messages = fetchMessages() || [];
     const { bodyHtml } = buildContent(messages);
     contentEl.innerHTML = bodyHtml;
+    contentEl.scrollTop = Math.min(scrollTop, contentEl.scrollHeight - contentEl.clientHeight);
   }
 
   /* ─────────────────────────────────────────────
@@ -979,6 +1019,7 @@
 
     const contentEl = document.getElementById(`${ID}-content`);
     if (contentEl) {
+      const scrollTop = contentEl.scrollTop;
       const { bodyHtml } = buildContent(messages);
       if (!messages.length) {
         contentEl.innerHTML = `
@@ -992,6 +1033,7 @@
           </div>`;
       } else {
         contentEl.innerHTML = bodyHtml;
+        contentEl.scrollTop = Math.min(scrollTop, contentEl.scrollHeight - contentEl.clientHeight);
       }
     }
   }
