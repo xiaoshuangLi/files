@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.11
+// @version      1.4.12
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -677,8 +677,8 @@
     }
 
     return `
-      <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;overflow:hidden">
-        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
+      <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;${isExpanded ? '' : 'overflow:hidden;'}">
+        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${bgColor};${isExpanded ? `position:sticky;top:0;z-index:2;border-radius:6px 6px 0 0;` : ''}">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
             <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${markHtml(block.subagentName || 'subagent')}</span>
@@ -774,8 +774,8 @@
       : '';
 
     return `
-      <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};overflow:hidden">
-        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px">
+      <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};${isExpanded ? '' : 'overflow:hidden;'}">
+        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${bgColor};${isExpanded ? `position:sticky;top:0;z-index:3;border-radius:8px 8px 0 0;` : ''}">
           <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
             <span style="font-size:12px;font-weight:700;color:${leftBorderColor};flex-shrink:0">${roleLabel}</span>
             <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
