@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.7
+// @version      1.4.8
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -833,8 +833,254 @@
   let currentTab = 'timeline';
   let phaseSort = 'duration'; // 'duration' | 'start' | 'alpha' | 'fail'
 
-  function renderTimeline(messages) {
-    return `<div style="padding:8px">${messages.map((m, i) => renderMessage(m, i)).join('')}</div>`;
+  // ── Search / filter state ──────────────────────
+  let searchKeyword = '';
+  let searchTimePreset = null; // null | '1h' | '6h' | '12h'
+  let searchTimeFrom = '';
+  let searchTimeTo = '';
+
+  /* ─────────────────────────────────────────────
+   *  Search / filter helpers
+   * ───────────────────────────────────────────── */
+
+  // Returns true when msg contains kw (case-insensitive) anywhere in its content/blocks.
+  function msgMatchesKeyword(msg, kw) {
+    if (msg.content && msg.content.toLowerCase().includes(kw)) return true;
+    function checkBlocks(blocks) {
+      if (!Array.isArray(blocks)) return false;
+      for (const b of blocks) {
+        if (b.type === 'text' && b.content && b.content.toLowerCase().includes(kw)) return true;
+        if (b.type === 'tool') {
+          if ((b.name || '').toLowerCase().includes(kw)) return true;
+          if ((b.shortResult || '').toLowerCase().includes(kw)) return true;
+          if ((b.error || '').toLowerCase().includes(kw)) return true;
+          const p = typeof b.parameters === 'string' ? b.parameters
+            : (b.parameters ? JSON.stringify(b.parameters) : b.compactParams || '');
+          if (p.toLowerCase().includes(kw)) return true;
+          const r = typeof b.result === 'string' ? b.result
+            : (b.result ? JSON.stringify(b.result) : '');
+          if (r.toLowerCase().includes(kw)) return true;
+        }
+        if (b.type === 'subagent') {
+          if ((b.subagentName || '').toLowerCase().includes(kw)) return true;
+          if (b.configuration && (b.configuration.description || '').toLowerCase().includes(kw)) return true;
+          if (checkBlocks(b.blocks)) return true;
+        }
+      }
+      return false;
+    }
+    return checkBlocks(msg.blocks);
+  }
+
+  // Returns [{msg, idx}] preserving original indices so block IDs stay correct.
+  function filterMessages(messages) {
+    let pairs = messages.map((msg, idx) => ({ msg, idx }));
+
+    if (searchTimePreset) {
+      const msMap = { '1h': 3600000, '6h': 21600000, '12h': 43200000 };
+      const cutoff = Date.now() - (msMap[searchTimePreset] || 0);
+      pairs = pairs.filter(({ msg }) => !msg.lastModified || msg.lastModified >= cutoff);
+    } else if (searchTimeFrom || searchTimeTo) {
+      const from = searchTimeFrom ? new Date(searchTimeFrom).getTime() : 0;
+      const to = searchTimeTo ? new Date(searchTimeTo).getTime() : Infinity;
+      pairs = pairs.filter(({ msg }) => {
+        if (!msg.lastModified) return true;
+        return msg.lastModified >= from && msg.lastModified <= to;
+      });
+    }
+
+    if (searchKeyword.trim()) {
+      const kw = searchKeyword.trim().toLowerCase();
+      pairs = pairs.filter(({ msg }) => msgMatchesKeyword(msg, kw));
+    }
+
+    return pairs;
+  }
+
+  // Update preset-button highlights and match count badge.
+  function updateFilterBarState() {
+    [null, '1h', '6h', '12h'].forEach(pid => {
+      const btn = document.getElementById(`${ID}-preset-${pid ?? 'all'}`);
+      if (!btn) return;
+      const active = searchTimePreset === pid && !searchTimeFrom && !searchTimeTo;
+      btn.style.background = active ? COLORS.accent : 'transparent';
+      btn.style.color = active ? '#fff' : COLORS.textMuted;
+      btn.style.borderColor = active ? COLORS.accent : COLORS.border;
+    });
+    const countEl = document.getElementById(`${ID}-filter-count`);
+    if (countEl) {
+      const hasFilter = searchKeyword.trim() || searchTimePreset || searchTimeFrom || searchTimeTo;
+      if (hasFilter) {
+        const msgs = fetchMessages() || [];
+        const n = filterMessages(msgs).length;
+        countEl.textContent = `${n}/${msgs.length}`;
+        countEl.style.color = n < msgs.length ? COLORS.accent : COLORS.textMuted;
+      } else {
+        countEl.textContent = '';
+      }
+    }
+  }
+
+  // Build the persistent filter bar DOM element (created once in createPanel).
+  function createFilterBar() {
+    const bar = document.createElement('div');
+    bar.id = `${ID}-filter-bar`;
+    bar.style.cssText = `
+      padding:7px 12px 6px;background:${COLORS.bg};
+      border-bottom:1px solid ${COLORS.border};flex-shrink:0;
+    `;
+
+    // ── Row 1: keyword input ─────────────────────
+    const searchRow = document.createElement('div');
+    searchRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
+
+    const searchWrap = document.createElement('div');
+    searchWrap.style.cssText = `
+      flex:1;display:flex;align-items:center;gap:4px;
+      background:${COLORS.card};border:1px solid ${COLORS.border};
+      border-radius:4px;padding:3px 8px;
+    `;
+
+    const searchIcon = document.createElement('span');
+    searchIcon.textContent = '🔍';
+    searchIcon.style.cssText = 'font-size:12px;flex-shrink:0;opacity:0.6;';
+
+    const searchInput = document.createElement('input');
+    searchInput.id = `${ID}-search-input`;
+    searchInput.type = 'text';
+    searchInput.placeholder = '关键字搜索…';
+    searchInput.style.cssText = `
+      flex:1;background:transparent;border:none;color:${COLORS.text};
+      font-size:12px;outline:none;min-width:0;
+    `;
+    searchInput.addEventListener('input', e => {
+      searchKeyword = e.target.value;
+      updateFilterBarState();
+      rerenderContent();
+    });
+
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchInput);
+
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = '清除';
+    clearBtn.style.cssText = `
+      flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};
+      color:${COLORS.textMuted};cursor:pointer;font-size:10px;border-radius:3px;
+      padding:2px 7px;white-space:nowrap;
+    `;
+    clearBtn.addEventListener('click', () => {
+      searchKeyword = '';
+      searchTimePreset = null;
+      searchTimeFrom = '';
+      searchTimeTo = '';
+      const si = document.getElementById(`${ID}-search-input`);
+      if (si) si.value = '';
+      const fi = document.getElementById(`${ID}-time-from`);
+      if (fi) fi.value = '';
+      const ti = document.getElementById(`${ID}-time-to`);
+      if (ti) ti.value = '';
+      updateFilterBarState();
+      rerenderContent();
+    });
+
+    const countBadge = document.createElement('span');
+    countBadge.id = `${ID}-filter-count`;
+    countBadge.style.cssText = `flex-shrink:0;font-size:11px;min-width:44px;text-align:right;`;
+
+    searchRow.appendChild(searchWrap);
+    searchRow.appendChild(clearBtn);
+    searchRow.appendChild(countBadge);
+
+    // ── Row 2: time presets ──────────────────────
+    const presetsRow = document.createElement('div');
+    presetsRow.style.cssText = 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:5px;';
+
+    [
+      { pid: null,  label: '全部' },
+      { pid: '1h',  label: '最近1小时' },
+      { pid: '6h',  label: '最近6小时' },
+      { pid: '12h', label: '最近12小时' },
+    ].forEach(({ pid, label }) => {
+      const btn = document.createElement('button');
+      btn.id = `${ID}-preset-${pid ?? 'all'}`;
+      btn.textContent = label;
+      btn.style.cssText = `
+        padding:2px 8px;font-size:11px;border-radius:3px;cursor:pointer;
+        border:1px solid ${COLORS.border};background:transparent;
+        color:${COLORS.textMuted};transition:all .15s;white-space:nowrap;
+      `;
+      btn.addEventListener('click', () => {
+        searchTimePreset = pid;
+        searchTimeFrom = '';
+        searchTimeTo = '';
+        const fi = document.getElementById(`${ID}-time-from`);
+        if (fi) fi.value = '';
+        const ti = document.getElementById(`${ID}-time-to`);
+        if (ti) ti.value = '';
+        updateFilterBarState();
+        rerenderContent();
+      });
+      presetsRow.appendChild(btn);
+    });
+
+    // ── Row 3: custom time range ─────────────────
+    const timeRow = document.createElement('div');
+    timeRow.style.cssText = 'display:flex;align-items:center;gap:5px;flex-wrap:wrap;';
+
+    const inputCss = `
+      background:${COLORS.card};border:1px solid ${COLORS.border};color:${COLORS.text};
+      border-radius:4px;padding:2px 5px;font-size:11px;outline:none;color-scheme:dark;
+      max-width:170px;
+    `;
+
+    const fromLabel = document.createElement('span');
+    fromLabel.textContent = '从';
+    fromLabel.style.cssText = `font-size:11px;color:${COLORS.textMuted};flex-shrink:0;`;
+
+    const fromInput = document.createElement('input');
+    fromInput.id = `${ID}-time-from`;
+    fromInput.type = 'datetime-local';
+    fromInput.style.cssText = inputCss;
+    fromInput.addEventListener('change', e => {
+      searchTimeFrom = e.target.value;
+      if (searchTimeFrom || searchTimeTo) searchTimePreset = null;
+      updateFilterBarState();
+      rerenderContent();
+    });
+
+    const toLabel = document.createElement('span');
+    toLabel.textContent = '至';
+    toLabel.style.cssText = `font-size:11px;color:${COLORS.textMuted};flex-shrink:0;`;
+
+    const toInput = document.createElement('input');
+    toInput.id = `${ID}-time-to`;
+    toInput.type = 'datetime-local';
+    toInput.style.cssText = inputCss;
+    toInput.addEventListener('change', e => {
+      searchTimeTo = e.target.value;
+      if (searchTimeFrom || searchTimeTo) searchTimePreset = null;
+      updateFilterBarState();
+      rerenderContent();
+    });
+
+    timeRow.appendChild(fromLabel);
+    timeRow.appendChild(fromInput);
+    timeRow.appendChild(toLabel);
+    timeRow.appendChild(toInput);
+
+    bar.appendChild(searchRow);
+    bar.appendChild(presetsRow);
+    bar.appendChild(timeRow);
+
+    return bar;
+  }
+
+  function renderTimeline(indexedMsgs) {
+    if (indexedMsgs.length === 0) {
+      return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">🔍 无匹配结果</div>`;
+    }
+    return `<div style="padding:8px">${indexedMsgs.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   // Returns true if a message contains at least one AskUserQuestion (any depth)
@@ -851,18 +1097,21 @@
   }
 
   // 交互 tab: show only messages containing AskUserQuestion, plus the immediately
-  // following user reply. Uses renderMessage so expand works correctly.
-  function renderInteractions(messages) {
+  // following user reply. indexedMsgs is the filtered [{msg,idx}] set;
+  // allMessages is the full array so we can find the adjacent reply.
+  function renderInteractions(indexedMsgs, allMessages) {
     const items = [];
     const seenIdx = new Set();
 
-    for (let i = 0; i < messages.length; i++) {
-      if (msgHasAskQuestion(messages[i])) {
-        if (!seenIdx.has(i)) { items.push({ msg: messages[i], idx: i }); seenIdx.add(i); }
-        // Also include the immediately following user message (the answer)
-        if (i + 1 < messages.length && messages[i + 1].role === 'user' && !seenIdx.has(i + 1)) {
-          items.push({ msg: messages[i + 1], idx: i + 1 });
-          seenIdx.add(i + 1);
+    for (const { msg, idx } of indexedMsgs) {
+      if (msgHasAskQuestion(msg)) {
+        if (!seenIdx.has(idx)) { items.push({ msg, idx }); seenIdx.add(idx); }
+        // Also include the immediately following user message (the answer), looked up
+        // from the full allMessages array so it's included even if it wasn't in the filter.
+        const next = allMessages[idx + 1];
+        if (next && next.role === 'user' && !seenIdx.has(idx + 1)) {
+          items.push({ msg: next, idx: idx + 1 });
+          seenIdx.add(idx + 1);
         }
       }
     }
@@ -900,10 +1149,11 @@
 
     const stats = computeStats(messages);
     const phases = extractPhases(messages);
+    const filtered = filterMessages(messages); // [{msg, idx}]
 
     let bodyHtml = '';
-    if (currentTab === 'timeline') bodyHtml = renderTimeline(messages);
-    else if (currentTab === 'interactions') bodyHtml = renderInteractions(messages);
+    if (currentTab === 'timeline') bodyHtml = renderTimeline(filtered);
+    else if (currentTab === 'interactions') bodyHtml = renderInteractions(filtered, messages);
     else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases, messages);
     return { bodyHtml, stats };
   }
@@ -1000,6 +1250,7 @@
 
     panel.appendChild(header);
     panel.appendChild(tabsEl);
+    panel.appendChild(createFilterBar());
     panel.appendChild(content);
     document.body.appendChild(panel);
     return panel;
@@ -1016,6 +1267,9 @@
 
     const tabsEl = document.getElementById(`${ID}-tabs`);
     if (tabsEl) tabsEl.innerHTML = renderTabs();
+
+    // Keep filter bar count in sync with live data
+    updateFilterBarState();
 
     const contentEl = document.getElementById(`${ID}-content`);
     if (contentEl) {
