@@ -320,11 +320,55 @@
     }
 
     return phases.map(p => {
-      const raw = (p.startTs && p.endTs) ? p.endTs - p.startTs : null;
       const hasFailed = phaseHasFailed(p, messages);
+      const pStart = p.startMsgIdx != null ? p.startMsgIdx : 0;
+      const pEnd   = p.endMsgIdx   != null ? p.endMsgIdx   : messages.length - 1;
+
+      // Scan all tool blocks in the phase range to collect:
+      //   firstCreateAt — the earliest createAt (= when work began)
+      //   lastUpdateAt  — the latest  updateAt  (= when work ended)
+      //   toolExecTime  — sum of (updateAt - createAt) per tool (pure CPU/IO time, no idle gaps)
+      let firstCreateAt = null;
+      let lastUpdateAt  = null;
+      let toolExecTime  = null;
+
+      function scanToolTs(blocks) {
+        if (!Array.isArray(blocks)) return;
+        for (const b of blocks) {
+          if (b.type === 'tool') {
+            if (b.createAt) {
+              firstCreateAt = firstCreateAt === null ? b.createAt : Math.min(firstCreateAt, b.createAt);
+            }
+            if (b.updateAt) {
+              lastUpdateAt = lastUpdateAt === null ? b.updateAt : Math.max(lastUpdateAt, b.updateAt);
+            }
+            if (b.createAt && b.updateAt && b.updateAt >= b.createAt) {
+              toolExecTime = (toolExecTime || 0) + (b.updateAt - b.createAt);
+            }
+          }
+          if (b.type === 'subagent') scanToolTs(b.blocks);
+        }
+      }
+      for (let mi = pStart; mi <= pEnd && mi < messages.length; mi++) {
+        scanToolTs(messages[mi].blocks);
+      }
+
+      // Phase duration = last tool's updateAt - first tool's createAt.
+      // Falls back to startTs/endTs boundary timestamps when tool-level data is absent.
+      let duration = null;
+      if (firstCreateAt !== null && lastUpdateAt !== null && lastUpdateAt >= firstCreateAt) {
+        duration = lastUpdateAt - firstCreateAt;
+      } else {
+        const raw = (p.startTs && p.endTs) ? p.endTs - p.startTs : null;
+        duration = raw !== null && raw >= 0 ? raw : null;
+      }
+
       return {
         ...p,
-        duration: raw !== null && raw >= 0 ? raw : null,
+        duration,
+        toolExecTime,
+        firstCreateAt,
+        lastUpdateAt,
         // Use != null to exclude both null and undefined
         msgSpan: (p.startMsgIdx != null && p.endMsgIdx != null)
           ? p.endMsgIdx - p.startMsgIdx
@@ -588,7 +632,6 @@
         ${detailHtml ? `<div style="padding:0 10px 10px">${detailHtml}</div>` : ''}
       </div>`;
   }
-  }
 
   function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0) {
     const id = `subagent-${msgIdx}-${blockIdx}`;
@@ -767,25 +810,41 @@
         const ib = b.startMsgIdx != null ? b.startMsgIdx : Infinity;
         return ia - ib;
       }
-      // Default: duration desc; fall back to msgSpan desc when timestamps are unreliable.
+      // Default: prefer toolExecTime (most accurate) then wall-clock duration, then msgSpan.
       // Multiply msgSpan by a large constant so it sorts above any ms-based duration
       // while still keeping phases-with-duration ranked among themselves.
-      const da = a.duration !== null ? a.duration : (a.msgSpan !== null ? a.msgSpan * MSG_SPAN_WEIGHT : 0);
-      const db = b.duration !== null ? b.duration : (b.msgSpan !== null ? b.msgSpan * MSG_SPAN_WEIGHT : 0);
+      const da = a.toolExecTime !== null ? a.toolExecTime
+               : a.duration    !== null ? a.duration
+               : (a.msgSpan !== null ? a.msgSpan * MSG_SPAN_WEIGHT : 0);
+      const db = b.toolExecTime !== null ? b.toolExecTime
+               : b.duration    !== null ? b.duration
+               : (b.msgSpan !== null ? b.msgSpan * MSG_SPAN_WEIGHT : 0);
       return db - da;
     });
-    const maxDur = sorted.find(p => p.duration !== null && p.duration > 0)?.duration || 1;
+    // Use toolExecTime when available (most accurate), else wall-clock duration, as the scale max.
+    const _maxDur = (() => {
+      for (const p of sorted) {
+        const v = p.toolExecTime ?? p.duration;
+        if (v !== null && v > 0) return v;
+      }
+      return 1;
+    })();
 
     return sorted.map((p, i) => {
       const phaseId = `phase-${i}`;
       const isExpanded = expandedIds.has(phaseId);
       _jsonStore[phaseId] = p;
 
-      const pct = p.duration ? Math.round((p.duration / maxDur) * 100) : 0;
+      // Progress bar uses the same metric as _maxDur for a consistent scale.
+      const barValue = p.toolExecTime ?? p.duration;
+      const pct = barValue ? Math.round((barValue / _maxDur) * 100) : 0;
+      // Primary label: lastUpdateAt - firstCreateAt (most accurate span of real work)
       // Check in-progress FIRST so null endMsgIdx always shows '进行中' regardless of msgSpan
       const durStr = p.duration !== null ? formatDuration(p.duration)
         : p.endMsgIdx === null ? '进行中'
         : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '—';
+      // Secondary label: sum of individual tool durations (pure execution, no idle gaps)
+      const execStr = p.toolExecTime !== null ? formatDuration(p.toolExecTime) : null;
       // Failed phases use error color; otherwise use rank-based color (top = warning, rest = accent)
       const rankColor = p.hasFailed ? COLORS.error
         : (i === 0 ? COLORS.warning : COLORS.accent);
@@ -836,10 +895,13 @@
                 ${pathSubtitle}
               </div>
               ${failBadge}
-              <span style="font-size:12px;font-weight:700;color:${rankColor};flex-shrink:0">${durStr}</span>
+              <div style="text-align:right;flex-shrink:0">
+                <div style="font-size:12px;font-weight:700;color:${rankColor}">${durStr}</div>
+                ${execStr ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-top:1px" title="工具纯执行耗时（∑ updateAt-createAt，不含空闲等待）">⚙️ ${execStr}</div>` : ''}
+              </div>
               <span style="font-size:11px;color:${COLORS.textMuted};flex-shrink:0">${isExpanded ? '▲' : '▼'}</span>
             </div>
-            ${p.duration ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden">
+            ${(p.duration || p.toolExecTime) ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden">
               <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
             </div>` : ''}
           </div>
