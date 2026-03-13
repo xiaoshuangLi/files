@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.12
+// @version      1.4.13
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -1006,6 +1006,7 @@
    * ───────────────────────────────────────────── */
   let currentTab = 'timeline';
   let phaseSort = 'duration'; // 'duration' | 'start' | 'alpha' | 'fail'
+  let timelineOrder = 'desc'; // 'asc' | 'desc'  (desc = newest-first, default)
 
   // ── Search / filter state ──────────────────────
   let searchKeyword = '';
@@ -1448,11 +1449,26 @@
     return bar;
   }
 
+  function renderOrderBar() {
+    const btnCss = (active) => `
+      padding:3px 10px;font-size:10px;border-radius:4px;cursor:pointer;
+      border:1px solid ${active ? COLORS.accent : COLORS.border};
+      background:${active ? COLORS.accent : 'transparent'};
+      color:${active ? '#fff' : COLORS.textMuted};
+      font-weight:${active ? '700' : '400'};
+    `;
+    return `<div style="display:flex;gap:4px;padding:6px 8px 2px;flex-shrink:0">
+      <button onclick="window.__agentVis.setTimelineOrder('desc')" style="${btnCss(timelineOrder === 'desc')}">⬇ 倒序</button>
+      <button onclick="window.__agentVis.setTimelineOrder('asc')"  style="${btnCss(timelineOrder === 'asc')}">⬆ 正序</button>
+    </div>`;
+  }
+
   function renderTimeline(indexedMsgs) {
     if (indexedMsgs.length === 0) {
       return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">🔍 无匹配结果</div>`;
     }
-    return `<div style="padding:8px">${indexedMsgs.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
+    const ordered = timelineOrder === 'desc' ? [...indexedMsgs].reverse() : indexedMsgs;
+    return renderOrderBar() + `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   // Returns true if a message contains at least one AskUserQuestion (any depth)
@@ -1491,7 +1507,8 @@
     if (items.length === 0) {
       return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">暂无用户交互记录</div>`;
     }
-    return `<div style="padding:8px">${items.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
+    const ordered = timelineOrder === 'desc' ? [...items].reverse() : items;
+    return renderOrderBar() + `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   /* ─────────────────────────────────────────────
@@ -1781,6 +1798,10 @@
     },
     setPhaseSort(mode) {
       phaseSort = mode;
+      rerenderContent();
+    },
+    setTimelineOrder(order) {
+      timelineOrder = order;
       rerenderContent();
     },
     jumpToError(id) {
