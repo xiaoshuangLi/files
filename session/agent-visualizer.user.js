@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.17
+// @version      1.4.18
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -891,7 +891,7 @@
       if (isExpanded) {
         const start = p.startMsgIdx != null ? p.startMsgIdx : 0;
         const end = p.endMsgIdx != null ? p.endMsgIdx : (messages.length - 1);
-        const toolRows = [];
+        const toolRowData = [];
         for (let mi = start; mi <= end && mi < messages.length; mi++) {
           const msg = messages[mi];
           if (!Array.isArray(msg.blocks)) continue;
@@ -902,16 +902,41 @@
           for (let bi = fromBi; bi <= toBi; bi++) {
             const b = msg.blocks[bi];
             if (b.type !== 'tool') continue;
-            // Pass createAt/updateAt so each row can show its own execution time
-            toolRows.push(renderToolBlock(b, mi, bi, {
-              ts: b.createAt || b.updateAt || msg.lastModified || null,
-              toolDuration: (b.createAt && b.updateAt && b.updateAt >= b.createAt)
-                ? b.updateAt - b.createAt
-                : null,
-            }));
+            const toolDuration = (b.createAt && b.updateAt && b.updateAt >= b.createAt)
+              ? b.updateAt - b.createAt
+              : null;
+            toolRowData.push({ b, mi, bi, toolDuration });
           }
         }
-        if (timelineOrder === 'desc') toolRows.reverse(); // local array built above, safe to mutate
+        // Sort inner tool rows by the same phaseSort rule used for phases.
+        toolRowData.sort((x, y) => {
+          if (phaseSort === 'fail') {
+            const xf = x.b.success === false || !!x.b.error;
+            const yf = y.b.success === false || !!y.b.error;
+            if (xf !== yf) return xf ? -1 : 1;
+          }
+          if (phaseSort === 'alpha') {
+            return (x.b.name || '').localeCompare(y.b.name || '', 'zh');
+          }
+          if (phaseSort === 'start') {
+            // Reverse-chronological: largest createAt first (desc baseline).
+            const ia = x.b.createAt || 0;
+            const ib = y.b.createAt || 0;
+            return ib - ia;
+          }
+          // Default (duration): longest first (desc baseline).
+          const da = x.toolDuration !== null ? x.toolDuration : 0;
+          const db = y.toolDuration !== null ? y.toolDuration : 0;
+          return db - da;
+        });
+        // Apply global asc/desc direction on top of the sort result.
+        if (timelineOrder === 'asc') toolRowData.reverse();
+        const toolRows = toolRowData.map(({ b, mi, bi, toolDuration }) =>
+          renderToolBlock(b, mi, bi, {
+            ts: b.createAt || b.updateAt || messages[mi].lastModified || null,
+            toolDuration,
+          })
+        );
         innerHtml = toolRows.length
           ? `<div style="padding:4px 0">${toolRows.join('')}</div>`
           : `<div style="padding:8px 0;font-size:11px;color:${COLORS.textMuted}">此阶段无工具调用记录</div>`;
@@ -1565,17 +1590,22 @@
     Object.keys(_textStore).forEach(k => delete _textStore[k]);
     Object.keys(_jsonStore).forEach(k => delete _jsonStore[k]);
 
-    const stats = computeStats(messages);
-    const phases = extractPhases(messages);
     const filtered = filterMessages(messages); // [{msg, idx}]
 
     // Auto-expand messages/subagents that contain the keyword so highlights are visible.
     if (searchKeyword.trim()) autoExpandForKeyword(filtered);
 
+    // For the Performance tab, re-extract phases and stats from the filtered message list
+    // so that the time-range filter and preset buttons actually affect the 性能 panel.
+    const filteredMsgs = filtered.map(p => p.msg);
+
+    const stats = computeStats(filteredMsgs);
+    const phases = extractPhases(filteredMsgs);
+
     let bodyHtml = '';
     if (currentTab === 'timeline') bodyHtml = renderTimeline(filtered);
     else if (currentTab === 'interactions') bodyHtml = renderInteractions(filtered, messages);
-    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases, messages);
+    else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases, filteredMsgs);
 
     // Record total matches found during this render.
     searchMatchTotal = _markCounter;
