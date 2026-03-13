@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.9
+// @version      1.4.10
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -160,9 +160,11 @@
     let successTools = 0;
     let failTools = 0;
     let userInteractions = 0;
-    const times = messages.map(m => m.lastModified).filter(Boolean);
-    const startTime = times.length ? Math.min(...times) : null;
-    const endTime = times.length ? Math.max(...times) : null;
+
+    // Collect timestamps from three sources (in priority order for accuracy):
+    //   1. Tool block createAt / updateAt  (most granular — per-tool)
+    //   2. msg.lastModified                (per-message fallback)
+    const allTs = [];
 
     function processBlocks(blocks) {
       if (!Array.isArray(blocks)) return;
@@ -174,6 +176,8 @@
           if (b.success === true) successTools++;
           else if (b.success === false) failTools++;
           if (name === 'AskUserQuestion') userInteractions++;
+          if (b.createAt) allTs.push(b.createAt);
+          if (b.updateAt) allTs.push(b.updateAt);
         } else if (b.type === 'subagent') {
           totalSubagents++;
           processBlocks(b.blocks);
@@ -183,7 +187,11 @@
 
     for (const msg of messages) {
       processBlocks(msg.blocks);
+      if (msg.lastModified) allTs.push(msg.lastModified);
     }
+
+    const startTime = allTs.length ? Math.min(...allTs) : null;
+    const endTime   = allTs.length ? Math.max(...allTs) : null;
 
     return {
       toolCounts,
@@ -215,7 +223,7 @@
     const events = [];
 
     // Recursively scan all blocks (including nested subagent blocks).
-    function scanBlocks(blocks, mi, ts) {
+    function scanBlocks(blocks, mi, fallbackTs) {
       if (!Array.isArray(blocks)) return;
       for (const block of blocks) {
         if (block.type === 'tool' && block.name === 'Bash') {
@@ -231,13 +239,15 @@
                 const phaseName = parts[parts.length - PHASE_NAME_OFFSET];
                 const pathPrefix = parts.slice(0, parts.length - PHASE_NAME_OFFSET).join('/');
                 const label = block.shortResult || phaseName;
+                // Prefer block.createAt → block.updateAt → fallbackTs (msg.lastModified)
+                const ts = block.createAt || block.updateAt || fallbackTs;
                 events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts });
               }
             }
           }
         }
         if (block.type === 'subagent' && Array.isArray(block.blocks)) {
-          scanBlocks(block.blocks, mi, ts);
+          scanBlocks(block.blocks, mi, fallbackTs);
         }
       }
     }
@@ -289,7 +299,23 @@
     // Rule 3: the phase still active after all events extends to the last message
     if (currentPhase && currentPhase.endMsgIdx == null && messages.length > 0) {
       const lastIdx = messages.length - 1;
-      currentPhase.endTs = messages[lastIdx].lastModified || null;
+      const lastMsg = messages[lastIdx];
+      // Best end timestamp: last tool's updateAt > last tool's createAt > msg.lastModified
+      let endTs = lastMsg.lastModified || null;
+      function findLastToolTs(blocks) {
+        if (!Array.isArray(blocks)) return;
+        for (const b of blocks) {
+          if (b.type === 'tool') {
+            if (b.updateAt) endTs = Math.max(endTs || 0, b.updateAt);
+            else if (b.createAt) endTs = Math.max(endTs || 0, b.createAt);
+          }
+          if (b.type === 'subagent') findLastToolTs(b.blocks);
+        }
+      }
+      for (let mi = currentPhase.startMsgIdx; mi <= lastIdx; mi++) {
+        findLastToolTs(messages[mi].blocks);
+      }
+      currentPhase.endTs = endTs;
       currentPhase.endMsgIdx = lastIdx;
     }
 
@@ -477,7 +503,13 @@
     const statusIcon = block.success === true ? '✅' : block.success === false ? '❌' : '⚪';
     const statusColor = block.success === true ? COLORS.success : block.success === false ? COLORS.error : COLORS.textMuted;
     const bgTint = isFailed ? COLORS.errorBg : COLORS.card;
-    const msgTs = (opts && opts.ts) ? opts.ts : null;
+    const msgTs = (opts && opts.ts) ? opts.ts : (block.createAt || null);
+    // Per-tool execution duration: prefer opts.toolDuration, else compute from block timestamps
+    const toolDuration = (opts && opts.toolDuration != null)
+      ? opts.toolDuration
+      : (block.createAt && block.updateAt && block.updateAt >= block.createAt)
+        ? block.updateAt - block.createAt
+        : null;
 
     _jsonStore[id] = block;
 
@@ -505,8 +537,19 @@
         }
       }
 
+      // Timing row: createAt → updateAt with duration
+      const timingHtml = block.createAt
+        ? (() => {
+            const start = formatTime(block.createAt);
+            const end   = block.updateAt ? formatTime(block.updateAt) : null;
+            const dur   = toolDuration !== null ? ` (${formatDuration(toolDuration)})` : '';
+            return `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">执行时间 (Timing)</div><div style="background:${COLORS.bg};border-radius:4px;padding:6px 8px;font-size:11px;color:${COLORS.text};font-family:monospace">${start}${end ? ` → ${end}` : ''}${escHtml(dur)}</div></div>`
+          })()
+        : '';
+
       detailHtml = `
         <div style="margin-top:8px;border-top:1px solid ${COLORS.border};padding-top:8px">
+          ${timingHtml}
           ${errorMsg ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.error};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">错误 (Error)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px;color:${COLORS.error};font-size:11px">${markHtml(errorMsg)}</div></div>` : ''}
           ${params ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">参数 (Parameters)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${paramsHtml}</div></div>` : ''}
           ${result ? `<div><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">结果 (Result)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${resultHtml}</div></div>` : ''}
@@ -518,8 +561,14 @@
       ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${markHtml(shortResult)}</span>`
       : '';
 
-    const tsHtml = msgTs
-      ? `<span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0;margin-left:4px">${formatTime(msgTs)}</span>`
+    // Timestamp badge: prefer createAt over fallback ts
+    const displayTs = block.createAt || msgTs;
+    const tsHtml = displayTs
+      ? `<span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0;margin-left:4px">${formatTime(displayTs)}</span>`
+      : '';
+    // Tool duration badge (shown in header row for quick scanning)
+    const durBadge = toolDuration !== null
+      ? `<span style="font-size:10px;color:${COLORS.accent};flex-shrink:0;background:${COLORS.accent}18;border-radius:3px;padding:0 4px">${formatDuration(toolDuration)}</span>`
       : '';
 
     return `
@@ -531,12 +580,14 @@
             <span style="font-size:12px;color:${statusColor};flex-shrink:0">${statusIcon}</span>
             ${shortResultHtml}
           </div>
+          ${durBadge}
           ${tsHtml}
           <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
           <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
         ${detailHtml ? `<div style="padding:0 10px 10px">${detailHtml}</div>` : ''}
       </div>`;
+  }
   }
 
   function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0) {
@@ -762,8 +813,13 @@
           for (let bi = 0; bi < msg.blocks.length; bi++) {
             const b = msg.blocks[bi];
             if (b.type !== 'tool') continue;
-            // Pass message timestamp so each item shows its own time
-            toolRows.push(renderToolBlock(b, mi, bi, { ts: msg.lastModified || null }));
+            // Pass createAt/updateAt so each row can show its own execution time
+            toolRows.push(renderToolBlock(b, mi, bi, {
+              ts: b.createAt || b.updateAt || msg.lastModified || null,
+              toolDuration: (b.createAt && b.updateAt && b.updateAt >= b.createAt)
+                ? b.updateAt - b.createAt
+                : null,
+            }));
           }
         }
         innerHtml = toolRows.length
