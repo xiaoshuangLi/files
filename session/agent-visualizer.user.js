@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.16
+// @version      1.4.17
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -564,11 +564,11 @@
     const id = `tool-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
     const isFailed = block.success === false || !!block.error;
-    const color = isFailed ? COLORS.error : toolColor(block.name);
+    const color = toolColor(block.name);
     const icon = toolIcon(block.name);
     const statusIcon = block.success === true ? '✅' : block.success === false ? '❌' : '⚪';
     const statusColor = block.success === true ? COLORS.success : block.success === false ? COLORS.error : COLORS.textMuted;
-    const bgTint = isFailed ? COLORS.errorBg : COLORS.card;
+    const bgTint = COLORS.card;
     const msgTs = (opts && opts.ts) ? opts.ts : (block.createAt || null);
     // Per-tool execution duration: prefer opts.toolDuration, else compute from block timestamps
     const toolDuration = (opts && opts.toolDuration != null)
@@ -638,7 +638,7 @@
       : '';
 
     return `
-      <div id="${ID}-block-${id}"${isFailed ? ' data-fail="true"' : ''} style="margin:4px 0;background:${bgTint};border:1px solid ${isFailed ? COLORS.error : COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
+      <div id="${ID}-block-${id}"${isFailed ? ' data-fail="true"' : ''} style="margin:4px 0;background:${bgTint};border:1px solid ${COLORS.border};border-left:3px solid ${color};border-radius:6px;overflow:hidden">
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none;min-width:0;overflow:hidden">
             <span style="font-size:14px;flex-shrink:0">${icon}</span>
@@ -663,8 +663,8 @@
     const indent = depth * 12;
     const failCount = countBlocksFailed(block.blocks);
     const hasError = failCount > 0;
-    const borderColor = hasError ? COLORS.error : COLORS.subagent;
-    const bgColor = hasError ? COLORS.errorBg : COLORS.card;
+    const borderColor = COLORS.subagent;
+    const bgColor = COLORS.card;
     const errorBadge = hasError
       ? `<span style="flex-shrink:0;background:${COLORS.error}22;color:${COLORS.error};border:1px solid ${COLORS.error};border-radius:3px;padding:1px 5px;font-size:10px;font-weight:700">❌ ${failCount}</span>`
       : '';
@@ -683,7 +683,7 @@
     // z-index decreases with depth so parent sticky headers always cover child ones.
     const stickyZIndex = 9 - depth;
     return `
-      <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;${isExpanded ? '' : 'overflow:hidden;'}">
+      <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;${isExpanded ? '' : 'overflow:hidden;'}">
         <div data-ag-sticky="" style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:${stickyZIndex};border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
@@ -738,14 +738,9 @@
     const failCount = countMsgFailed(msg);
     const hasError = failCount > 0;
 
-    // Override background and border when the message has errors
-    const bgColor = hasError
-      ? COLORS.msgErrorBg
-      : (isUser ? 'rgba(249,115,22,0.07)' : 'rgba(108,138,255,0.07)');
-    const leftBorderColor = hasError ? COLORS.error : roleColor;
-    const outerBorder = hasError
-      ? `border:1px solid ${COLORS.error};border-left:4px solid ${COLORS.error};`
-      : `border:1px solid ${COLORS.border};border-left:4px solid ${roleColor};`;
+    // Role-based background and border
+    const bgColor = isUser ? 'rgba(249,115,22,0.07)' : 'rgba(108,138,255,0.07)';
+    const outerBorder = `border:1px solid ${COLORS.border};border-left:4px solid ${roleColor};`;
 
     _jsonStore[msgId] = msg;
 
@@ -786,7 +781,7 @@
       <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};${isExpanded ? '' : 'overflow:hidden;'}">
         <div data-ag-sticky="" style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:10;border-radius:8px 8px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
-            <span style="font-size:12px;font-weight:700;color:${leftBorderColor};flex-shrink:0">${roleLabel}</span>
+            <span style="font-size:12px;font-weight:700;color:${roleColor};flex-shrink:0">${roleLabel}</span>
             <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
             <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
           </div>
@@ -836,10 +831,11 @@
         return a.phaseName.localeCompare(b.phaseName, 'zh');
       }
       if (phaseSort === 'start') {
-        // Chronological order (by startMsgIdx — always set by extractPhases)
-        const ia = a.startMsgIdx != null ? a.startMsgIdx : Infinity;
-        const ib = b.startMsgIdx != null ? b.startMsgIdx : Infinity;
-        return ia - ib;
+        // Reverse-chronological order: highest startMsgIdx (most recent phase) first.
+        // Consistent with other modes where desc (default) means "largest/latest first".
+        const ia = a.startMsgIdx != null ? a.startMsgIdx : -Infinity;
+        const ib = b.startMsgIdx != null ? b.startMsgIdx : -Infinity;
+        return ib - ia;
       }
       // Default: prefer toolExecTime (most accurate) then wall-clock duration, then msgSpan.
       // Multiply msgSpan by a large constant so it sorts above any ms-based duration
@@ -878,12 +874,9 @@
         : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '—';
       // Secondary label: sum of individual tool durations (pure execution, no idle gaps)
       const execStr = p.toolExecTime !== null ? formatDuration(p.toolExecTime) : null;
-      // Failed phases use error color; otherwise use rank-based color (top = warning, rest = accent)
-      const rankColor = p.hasFailed ? COLORS.error
-        : (i === 0 ? COLORS.warning : COLORS.accent);
-      const outerBorder = p.hasFailed
-        ? `border:2px solid ${COLORS.error};`
-        : `border:1px solid ${COLORS.border};`;
+      // Rank-based color (top phase = warning accent, rest = accent)
+      const rankColor = i === 0 ? COLORS.warning : COLORS.accent;
+      const outerBorder = `border:1px solid ${COLORS.border};`;
       const failBadge = p.hasFailed
         ? `<span style="font-size:10px;color:${COLORS.error};font-weight:700;flex-shrink:0">❌ 含失败</span>`
         : '';
