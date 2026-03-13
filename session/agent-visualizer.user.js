@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.13
+// @version      1.4.14
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -79,6 +79,11 @@
   function toolIcon(name) {
     return TOOL_ICONS[name] || '🔧';
   }
+
+  // Approximate header heights for depth-aware sticky positioning.
+  // These match the padding + single-line content in each card type.
+  const MSG_HEADER_H = 44;   // renderMessage header  (~padding 10+10 + line ~24px)
+  const SUB_HEADER_H = 36;   // renderSubagentBlock header (~padding 8+8 + line ~20px)
 
   function formatTime(ts) {
     if (!ts) return '—';
@@ -655,7 +660,7 @@
       </div>`;
   }
 
-  function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0) {
+  function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0, stickyTop = 0) {
     const id = `subagent-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
     const statusColor = block.status === 'completed' ? COLORS.success : COLORS.warning;
@@ -673,12 +678,16 @@
 
     let innerBlocksHtml = '';
     if (isExpanded && Array.isArray(block.blocks)) {
-      innerBlocksHtml = block.blocks.map((b, bi) => renderBlock(b, `${msgIdx}-sub-${blockIdx}`, bi, depth + 1)).join('');
+      const entries = block.blocks.map((b, bi) => ({ b, bi }));
+      if (timelineOrder === 'desc') entries.reverse(); // local array, safe to mutate
+      innerBlocksHtml = entries.map(({ b, bi }) =>
+        renderBlock(b, `${msgIdx}-sub-${blockIdx}`, bi, depth + 1, stickyTop + SUB_HEADER_H)
+      ).join('');
     }
 
     return `
       <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;${isExpanded ? '' : 'overflow:hidden;'}">
-        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${bgColor};${isExpanded ? `position:sticky;top:0;z-index:2;border-radius:6px 6px 0 0;` : ''}">
+        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:${stickyTop}px;z-index:2;border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
             <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${markHtml(block.subagentName || 'subagent')}</span>
@@ -713,9 +722,9 @@
       </div>`;
   }
 
-  function renderBlock(block, msgIdx, blockIdx, depth = 0) {
+  function renderBlock(block, msgIdx, blockIdx, depth = 0, stickyTop = 0) {
     if (block.type === 'tool') return renderToolBlock(block, msgIdx, blockIdx);
-    if (block.type === 'subagent') return renderSubagentBlock(block, msgIdx, blockIdx, depth);
+    if (block.type === 'subagent') return renderSubagentBlock(block, msgIdx, blockIdx, depth, stickyTop);
     if (block.type === 'text') return renderTextBlock(block);
     return '';
   }
@@ -769,13 +778,16 @@
       userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${markHtml(msg.content)}</div>`;
     }
 
-    const blocksHtml = isExpanded
-      ? blocks.map((b, bi) => renderBlock(b, idx, bi)).join('')
-      : '';
+    const blocksHtml = (() => {
+      if (!isExpanded) return '';
+      const entries = blocks.map((b, bi) => ({ b, bi }));
+      if (timelineOrder === 'desc') entries.reverse(); // local array, safe to mutate
+      return entries.map(({ b, bi }) => renderBlock(b, idx, bi, 0, MSG_HEADER_H)).join('');
+    })();
 
     return `
       <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};${isExpanded ? '' : 'overflow:hidden;'}">
-        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${bgColor};${isExpanded ? `position:sticky;top:0;z-index:3;border-radius:8px 8px 0 0;` : ''}">
+        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:3;border-radius:8px 8px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
             <span style="font-size:12px;font-weight:700;color:${leftBorderColor};flex-shrink:0">${roleLabel}</span>
             <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
@@ -907,6 +919,7 @@
             }));
           }
         }
+        if (timelineOrder === 'desc') toolRows.reverse(); // local array built above, safe to mutate
         innerHtml = toolRows.length
           ? `<div style="padding:4px 0">${toolRows.join('')}</div>`
           : `<div style="padding:8px 0;font-size:11px;color:${COLORS.textMuted}">此阶段无工具调用记录</div>`;
@@ -917,7 +930,7 @@
       const outerOverflow = isExpanded ? '' : 'overflow:hidden;';
       // Sticky header: sticks to the top of the #content scroll container when expanded.
       const headerPos = isExpanded
-        ? `position:sticky;top:0;z-index:3;border-radius:6px 6px 0 0;`
+        ? `position:sticky;top:0;z-index:3;border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};`
         : '';
 
       return `
@@ -1457,10 +1470,15 @@
       color:${active ? '#fff' : COLORS.textMuted};
       font-weight:${active ? '700' : '400'};
     `;
-    return `<div style="display:flex;gap:4px;padding:6px 8px 2px;flex-shrink:0">
+    return `
       <button onclick="window.__agentVis.setTimelineOrder('desc')" style="${btnCss(timelineOrder === 'desc')}">⬇ 倒序</button>
       <button onclick="window.__agentVis.setTimelineOrder('asc')"  style="${btnCss(timelineOrder === 'asc')}">⬆ 正序</button>
-    </div>`;
+    `;
+  }
+
+  function updateOrderBar() {
+    const el = document.getElementById(`${ID}-order-bar`);
+    if (el) el.innerHTML = renderOrderBar();
   }
 
   function renderTimeline(indexedMsgs) {
@@ -1468,7 +1486,7 @@
       return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">🔍 无匹配结果</div>`;
     }
     const ordered = timelineOrder === 'desc' ? [...indexedMsgs].reverse() : indexedMsgs;
-    return renderOrderBar() + `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
+    return `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   // Returns true if a message contains at least one AskUserQuestion (any depth)
@@ -1508,7 +1526,7 @@
       return `<div style="padding:24px;text-align:center;color:${COLORS.textMuted};font-size:13px">暂无用户交互记录</div>`;
     }
     const ordered = timelineOrder === 'desc' ? [...items].reverse() : items;
-    return renderOrderBar() + `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
+    return `<div style="padding:8px">${ordered.map(({ msg, idx }) => renderMessage(msg, idx)).join('')}</div>`;
   }
 
   /* ─────────────────────────────────────────────
@@ -1580,22 +1598,134 @@
   let _dataCheckTimer   = null;
   const AUTO_REFRESH_MS  = 10000;
   const DATA_CHECK_MS    = 2000;
+  // Min scrollTop (px) before auto-refresh compensates for prepended content in 倒序 mode.
+  const DESC_SCROLL_THRESHOLD = 50;
 
   function createToggleButton() {
+    const POS_KEY = `${ID}-btn-pos`;
+    const BTN_SIZE = 48;
+
+    // Clamp position so the button always stays fully inside the viewport.
+    function clampPos(x, y) {
+      return {
+        x: Math.max(4, Math.min(x, window.innerWidth  - BTN_SIZE - 4)),
+        y: Math.max(4, Math.min(y, window.innerHeight - BTN_SIZE - 4)),
+      };
+    }
+
+    // Default: bottom-right corner (mirrors the original CSS fixed position).
+    let savedX = window.innerWidth  - 24 - BTN_SIZE;
+    let savedY = window.innerHeight - 24 - BTN_SIZE;
+    try {
+      const stored = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+      if (stored && typeof stored.x === 'number' && typeof stored.y === 'number') {
+        const c = clampPos(stored.x, stored.y);
+        savedX = c.x;
+        savedY = c.y;
+      }
+    } catch (_) {}
+
     const btn = document.createElement('button');
     btn.id = `${ID}-toggle`;
     btn.title = 'AI Agent 可视化分析';
     btn.innerHTML = '🤖';
     btn.style.cssText = `
-      position:fixed;bottom:24px;right:24px;z-index:2147483647;
-      width:48px;height:48px;border-radius:50%;border:none;
+      position:fixed;left:${savedX}px;top:${savedY}px;z-index:2147483647;
+      width:${BTN_SIZE}px;height:${BTN_SIZE}px;border-radius:50%;border:none;
       background:${COLORS.accent};color:#fff;font-size:22px;
-      cursor:pointer;box-shadow:0 4px 20px rgba(108,138,255,0.5);
-      transition:all .2s;display:none;align-items:center;justify-content:center;
+      cursor:grab;box-shadow:0 4px 20px rgba(108,138,255,0.5);
+      transition:box-shadow .2s,transform .2s;display:none;
+      align-items:center;justify-content:center;
+      user-select:none;touch-action:none;
     `;
-    btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.1)'; });
-    btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
-    btn.addEventListener('click', togglePanel);
+
+    // ── Drag state ──────────────────────────────────
+    let isDragging = false;
+    let hasMoved   = false;
+    let dragStartClientX, dragStartClientY;
+    let dragStartBtnX,    dragStartBtnY;
+
+    function startDrag(clientX, clientY) {
+      isDragging = true;
+      hasMoved   = false;
+      dragStartClientX = clientX;
+      dragStartClientY = clientY;
+      dragStartBtnX = parseInt(btn.style.left, 10);
+      dragStartBtnY = parseInt(btn.style.top,  10);
+      btn.style.cursor     = 'grabbing';
+      btn.style.transition = 'none';   // no animation while dragging
+      btn.style.transform  = 'scale(1.05)';
+    }
+
+    function moveDrag(clientX, clientY) {
+      if (!isDragging) return;
+      const dx = clientX - dragStartClientX;
+      const dy = clientY - dragStartClientY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasMoved = true;
+      if (hasMoved) {
+        const c = clampPos(dragStartBtnX + dx, dragStartBtnY + dy);
+        btn.style.left = `${c.x}px`;
+        btn.style.top  = `${c.y}px`;
+      }
+    }
+
+    function endDrag() {
+      if (!isDragging) return;
+      isDragging = false;
+      btn.style.cursor     = 'grab';
+      btn.style.transition = 'box-shadow .2s,transform .2s';
+      btn.style.transform  = 'scale(1)';
+      if (hasMoved) {
+        const x = parseInt(btn.style.left, 10);
+        const y = parseInt(btn.style.top,  10);
+        try { localStorage.setItem(POS_KEY, JSON.stringify({ x, y })); } catch (_) {}
+      }
+    }
+
+    // ── Mouse events ─────────────────────────────────
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();   // prevent text selection
+      startDrag(e.clientX, e.clientY);
+    });
+    document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
+    document.addEventListener('mouseup', () => {
+      const wasClick = !hasMoved;
+      endDrag();
+      if (wasClick) togglePanel();
+    });
+
+    // ── Touch events ──────────────────────────────────
+    btn.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      startDrag(t.clientX, t.clientY);
+    }, { passive: true });
+    document.addEventListener('touchmove', e => {
+      if (!isDragging) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      moveDrag(t.clientX, t.clientY);
+    }, { passive: false });
+    document.addEventListener('touchend', () => {
+      const wasClick = !hasMoved;
+      endDrag();
+      if (wasClick) togglePanel();
+    });
+
+    // ── Hover (only when not dragging) ───────────────
+    btn.addEventListener('mouseenter', () => {
+      if (!isDragging) btn.style.transform = 'scale(1.1)';
+    });
+    btn.addEventListener('mouseleave', () => {
+      if (!isDragging) btn.style.transform = 'scale(1)';
+    });
+
+    // ── Keep inside viewport on resize ───────────────
+    window.addEventListener('resize', () => {
+      const c = clampPos(parseInt(btn.style.left, 10), parseInt(btn.style.top, 10));
+      btn.style.left = `${c.x}px`;
+      btn.style.top  = `${c.y}px`;
+    });
+
     document.body.appendChild(btn);
     return btn;
   }
@@ -1658,6 +1788,16 @@
       border-bottom:2px solid ${COLORS.accent};flex-shrink:0;
     `;
 
+    // Order bar (permanent, between tabs and content)
+    const orderBarEl = document.createElement('div');
+    orderBarEl.id = `${ID}-order-bar`;
+    orderBarEl.style.cssText = `
+      flex-shrink:0;display:flex;align-items:center;gap:4px;
+      padding:6px 12px;background:${COLORS.bg};
+      border-bottom:1px solid ${COLORS.border};
+    `;
+    orderBarEl.innerHTML = renderOrderBar();
+
     // Content
     const content = document.createElement('div');
     content.id = `${ID}-content`;
@@ -1669,6 +1809,7 @@
     panel.appendChild(header);
     panel.appendChild(createFilterBar());   // filter bar is ABOVE tabs
     panel.appendChild(tabsEl);
+    panel.appendChild(orderBarEl);          // order bar between tabs and content
     panel.appendChild(content);
     document.body.appendChild(panel);
     return panel;
@@ -1685,6 +1826,7 @@
 
     const tabsEl = document.getElementById(`${ID}-tabs`);
     if (tabsEl) tabsEl.innerHTML = renderTabs();
+    updateOrderBar();
 
     const contentEl = document.getElementById(`${ID}-content`);
     if (contentEl) {
@@ -1713,7 +1855,22 @@
   function startAutoRefresh() {
     stopAutoRefresh();
     _autoRefreshTimer = setInterval(() => {
-      if (panelVisible) renderPanel();
+      if (!panelVisible) return;
+      const contentEl = document.getElementById(`${ID}-content`);
+      const prevScrollTop    = contentEl ? contentEl.scrollTop    : 0;
+      const prevScrollHeight = contentEl ? contentEl.scrollHeight : 0;
+      renderPanel();
+      // In 倒序 mode new content is prepended to the top.  If the user is scrolled
+      // away from the very top, compensate so their current view stays stable.
+      if (contentEl && timelineOrder === 'desc' && prevScrollTop > DESC_SCROLL_THRESHOLD) {
+        const delta = contentEl.scrollHeight - prevScrollHeight;
+        if (delta > 0) {
+          contentEl.scrollTop = Math.min(
+            prevScrollTop + delta,
+            contentEl.scrollHeight - contentEl.clientHeight
+          );
+        }
+      }
     }, AUTO_REFRESH_MS);
   }
 
@@ -1802,6 +1959,7 @@
     },
     setTimelineOrder(order) {
       timelineOrder = order;
+      updateOrderBar();
       rerenderContent();
     },
     jumpToError(id) {
