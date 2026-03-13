@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.15
+// @version      1.4.16
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -852,6 +852,8 @@
                : (b.msgSpan !== null ? b.msgSpan * MSG_SPAN_WEIGHT : 0);
       return db - da;
     });
+    // Apply global asc/desc order on top of the sort-mode result.
+    if (timelineOrder === 'asc') sorted.reverse();
     // Use toolExecTime when available (most accurate), else wall-clock duration, as the scale max.
     const _maxDur = (() => {
       for (const p of sorted) {
@@ -1334,6 +1336,29 @@
     searchRow.appendChild(nextBtn);
     searchRow.appendChild(clearBtn);
 
+    // ── Order buttons (倒序 / 正序) — always visible in the search row ──
+    const orderBtnCss = (active) => `
+      flex-shrink:0;padding:2px 8px;font-size:11px;border-radius:3px;cursor:pointer;
+      border:1px solid ${active ? COLORS.accent : COLORS.border};
+      background:${active ? COLORS.accent : 'transparent'};
+      color:${active ? '#fff' : COLORS.textMuted};
+      font-weight:${active ? '700' : '400'};white-space:nowrap;
+    `;
+    const descBtn = document.createElement('button');
+    descBtn.id = `${ID}-order-desc-btn`;
+    descBtn.textContent = '⬇ 倒序';
+    descBtn.style.cssText = orderBtnCss(timelineOrder === 'desc');
+    descBtn.addEventListener('click', () => window.__agentVis.setTimelineOrder('desc'));
+
+    const ascBtn = document.createElement('button');
+    ascBtn.id = `${ID}-order-asc-btn`;
+    ascBtn.textContent = '⬆ 正序';
+    ascBtn.style.cssText = orderBtnCss(timelineOrder === 'asc');
+    ascBtn.addEventListener('click', () => window.__agentVis.setTimelineOrder('asc'));
+
+    searchRow.appendChild(descBtn);
+    searchRow.appendChild(ascBtn);
+
     // ── Row 2: time presets + dual-range slider ──
     const timeRow = document.createElement('div');
     timeRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
@@ -1459,23 +1484,18 @@
     return bar;
   }
 
-  function renderOrderBar() {
-    const btnCss = (active) => `
-      padding:3px 10px;font-size:10px;border-radius:4px;cursor:pointer;
+  function updateOrderBar() {
+    const orderBtnCss = (active) => `
+      flex-shrink:0;padding:2px 8px;font-size:11px;border-radius:3px;cursor:pointer;
       border:1px solid ${active ? COLORS.accent : COLORS.border};
       background:${active ? COLORS.accent : 'transparent'};
       color:${active ? '#fff' : COLORS.textMuted};
-      font-weight:${active ? '700' : '400'};
+      font-weight:${active ? '700' : '400'};white-space:nowrap;
     `;
-    return `
-      <button onclick="window.__agentVis.setTimelineOrder('desc')" style="${btnCss(timelineOrder === 'desc')}">⬇ 倒序</button>
-      <button onclick="window.__agentVis.setTimelineOrder('asc')"  style="${btnCss(timelineOrder === 'asc')}">⬆ 正序</button>
-    `;
-  }
-
-  function updateOrderBar() {
-    const el = document.getElementById(`${ID}-order-bar`);
-    if (el) el.innerHTML = renderOrderBar();
+    const d = document.getElementById(`${ID}-order-desc-btn`);
+    const a = document.getElementById(`${ID}-order-asc-btn`);
+    if (d) d.style.cssText = orderBtnCss(timelineOrder === 'desc');
+    if (a) a.style.cssText = orderBtnCss(timelineOrder === 'asc');
   }
 
   function renderTimeline(indexedMsgs) {
@@ -1791,16 +1811,6 @@
       border-bottom:2px solid ${COLORS.accent};flex-shrink:0;
     `;
 
-    // Order bar (permanent, between tabs and content)
-    const orderBarEl = document.createElement('div');
-    orderBarEl.id = `${ID}-order-bar`;
-    orderBarEl.style.cssText = `
-      flex-shrink:0;display:flex;align-items:center;gap:4px;
-      padding:6px 12px;background:${COLORS.bg};
-      border-bottom:1px solid ${COLORS.border};
-    `;
-    orderBarEl.innerHTML = renderOrderBar();
-
     // Content
     const content = document.createElement('div');
     content.id = `${ID}-content`;
@@ -1810,9 +1820,8 @@
     `;
 
     panel.appendChild(header);
-    panel.appendChild(createFilterBar());   // filter bar is ABOVE tabs
+    panel.appendChild(createFilterBar());   // filter bar (with order buttons) is ABOVE tabs
     panel.appendChild(tabsEl);
-    panel.appendChild(orderBarEl);          // order bar between tabs and content
     panel.appendChild(content);
     document.body.appendChild(panel);
     return panel;
