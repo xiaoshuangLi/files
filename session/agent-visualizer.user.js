@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.10
+// @version      1.4.11
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -223,9 +223,14 @@
     const events = [];
 
     // Recursively scan all blocks (including nested subagent blocks).
-    function scanBlocks(blocks, mi, fallbackTs) {
+    // topBi: the top-level block index in the message (used so events always carry the
+    //         message-level block position regardless of nesting depth).
+    function scanBlocks(blocks, mi, fallbackTs, topBi) {
       if (!Array.isArray(blocks)) return;
-      for (const block of blocks) {
+      for (let bi = 0; bi < blocks.length; bi++) {
+        const block = blocks[bi];
+        // Top-level index = bi when called at message level; otherwise inherit from caller.
+        const effectiveBi = topBi !== undefined ? topBi : bi;
         if (block.type === 'tool' && block.name === 'Bash') {
           const params = tryParseJson(block.parameters) || {};
           const cmd = params.command || block.compactParams || '';
@@ -241,13 +246,13 @@
                 const label = block.shortResult || phaseName;
                 // Prefer block.createAt → block.updateAt → fallbackTs (msg.lastModified)
                 const ts = block.createAt || block.updateAt || fallbackTs;
-                events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, ts });
+                events.push({ phaseName, pathPrefix, label, status, msgIdx: mi, blockIdx: effectiveBi, ts });
               }
             }
           }
         }
         if (block.type === 'subagent' && Array.isArray(block.blocks)) {
-          scanBlocks(block.blocks, mi, fallbackTs);
+          scanBlocks(block.blocks, mi, fallbackTs, effectiveBi);
         }
       }
     }
@@ -260,6 +265,9 @@
     // Single "currently active" phase pointer — the agent is in at most one phase at a time.
     // Rule 1: ANY 'running' closes currentPhase (regardless of key) and opens a new one.
     // Rule 2: 'done' for key X closes currentPhase only when its key matches X.
+    //
+    // Block-level boundaries: when two phases share a transition message M, the old phase
+    // owns blocks [0 .. ev.blockIdx-1] in M, and the new phase owns [ev.blockIdx ..] in M.
     const phases = [];
     let currentPhase = null; // the most recently opened, not yet closed phase
     for (const ev of events) {
@@ -269,16 +277,20 @@
         if (currentPhase && currentPhase.endMsgIdx == null) {
           currentPhase.endTs = ev.ts || null;
           currentPhase.endMsgIdx = ev.msgIdx;
+          // endBlockIdx is exclusive: old phase includes blocks [0 .. endBlockIdx-1] in endMsgIdx
+          currentPhase.endBlockIdx = ev.blockIdx;
         }
-        // Open a fresh phase
+        // Open a fresh phase starting at this block (inclusive)
         currentPhase = {
           label: ev.label,
           phaseName: ev.phaseName,
           pathPrefix: ev.pathPrefix,
           startTs: ev.ts || null,
           startMsgIdx: ev.msgIdx,
+          startBlockIdx: ev.blockIdx, // inclusive
           endTs: null,
           endMsgIdx: null,
+          endBlockIdx: null, // null = include all blocks in the end message
         };
         phases.push(currentPhase);
       } else if (ev.status === 'done') {
@@ -290,6 +302,7 @@
           if (currentKey === key) {
             currentPhase.endTs = ev.ts || null;
             currentPhase.endMsgIdx = ev.msgIdx;
+            currentPhase.endBlockIdx = null; // include the 'done' block itself
             currentPhase = null;
           }
         }
@@ -350,7 +363,12 @@
         }
       }
       for (let mi = pStart; mi <= pEnd && mi < messages.length; mi++) {
-        scanToolTs(messages[mi].blocks);
+        const blocks = messages[mi].blocks;
+        if (!Array.isArray(blocks)) continue;
+        // Apply block-level boundaries to prevent bleed across the transition block.
+        const fromBi = (mi === pStart && p.startBlockIdx != null) ? p.startBlockIdx : 0;
+        const toBi   = (mi === pEnd   && p.endBlockIdx   != null) ? p.endBlockIdx - 1 : blocks.length - 1;
+        scanToolTs(blocks.slice(fromBi, toBi + 1));
       }
 
       // Phase duration = last tool's updateAt - first tool's createAt.
@@ -391,7 +409,11 @@
       return false;
     }
     for (let mi = phase.startMsgIdx; mi <= endIdx && mi < messages.length; mi++) {
-      if (checkBlocks(messages[mi].blocks)) return true;
+      const blocks = messages[mi].blocks;
+      if (!Array.isArray(blocks)) continue;
+      const fromBi = (mi === phase.startMsgIdx && phase.startBlockIdx != null) ? phase.startBlockIdx : 0;
+      const toBi   = (mi === endIdx            && phase.endBlockIdx   != null) ? phase.endBlockIdx - 1 : blocks.length - 1;
+      if (checkBlocks(blocks.slice(fromBi, toBi + 1))) return true;
     }
     return false;
   }
@@ -860,7 +882,7 @@
         ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-top:2px;font-family:monospace">${escHtml(p.pathPrefix)}/${escHtml(p.phaseName)}</div>`
         : '';
 
-      // Collect tool blocks from all messages within this phase's message range
+      // Collect tool blocks from all messages within this phase's block-level range
       let innerHtml = '';
       if (isExpanded) {
         const start = p.startMsgIdx != null ? p.startMsgIdx : 0;
@@ -869,7 +891,11 @@
         for (let mi = start; mi <= end && mi < messages.length; mi++) {
           const msg = messages[mi];
           if (!Array.isArray(msg.blocks)) continue;
-          for (let bi = 0; bi < msg.blocks.length; bi++) {
+          // Respect block-level boundaries so the transition Bash call only appears in
+          // the NEW phase (startBlockIdx inclusive) and not the old phase (endBlockIdx exclusive).
+          const fromBi = (mi === start && p.startBlockIdx != null) ? p.startBlockIdx : 0;
+          const toBi   = (mi === end   && p.endBlockIdx   != null) ? p.endBlockIdx - 1 : msg.blocks.length - 1;
+          for (let bi = fromBi; bi <= toBi; bi++) {
             const b = msg.blocks[bi];
             if (b.type !== 'tool') continue;
             // Pass createAt/updateAt so each row can show its own execution time
@@ -886,9 +912,17 @@
           : `<div style="padding:8px 0;font-size:11px;color:${COLORS.textMuted}">此阶段无工具调用记录</div>`;
       }
 
+      // When expanded: remove overflow:hidden so position:sticky works on the header.
+      // When collapsed: keep overflow:hidden for clean border-radius clipping.
+      const outerOverflow = isExpanded ? '' : 'overflow:hidden;';
+      // Sticky header: sticks to the top of the #content scroll container when expanded.
+      const headerPos = isExpanded
+        ? `position:sticky;top:0;z-index:3;border-radius:6px 6px 0 0;`
+        : '';
+
       return `
-        <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${rankColor};border-radius:6px;overflow:hidden">
-          <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none">
+        <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${rankColor};border-radius:6px;${outerOverflow}">
+          <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none;background:${COLORS.card};${headerPos}">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration ? 4 : 0}px">
               <div style="flex:1;min-width:0">
                 <span style="font-size:11px;font-weight:600;color:${COLORS.text}">${escHtml(p.label)}</span>
