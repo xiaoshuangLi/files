@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.8
+// @version      1.4.9
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -115,6 +115,28 @@
 
   function tryParseJson(str) {
     try { return JSON.parse(str); } catch { return null; }
+  }
+
+  // Same as markHtml but without ID/counter tracking — used for toggleText
+  // so expanded text blocks still show highlights without disrupting navigation.
+  function highlightText(str) {
+    if (!str) return '';
+    const kw = searchKeyword.trim().toLowerCase();
+    if (!kw) return escHtml(str);
+    const lower = str.toLowerCase();
+    const result = [];
+    let last = 0, pos;
+    while ((pos = lower.indexOf(kw, last)) !== -1) {
+      if (pos > last) result.push(escHtml(str.slice(last, pos)));
+      result.push(
+        `<mark style="background:${COLORS.accent}40;color:${COLORS.accent};border-radius:2px;padding:0 1px">`
+        + escHtml(str.slice(pos, pos + kw.length))
+        + '</mark>'
+      );
+      last = pos + kw.length;
+    }
+    if (last < str.length) result.push(escHtml(str.slice(last)));
+    return result.join('');
   }
 
   /* ─────────────────────────────────────────────
@@ -468,24 +490,24 @@
       let paramsHtml = '';
       const parsedParams = tryParseJson(params);
       if (parsedParams) {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${escHtml(JSON.stringify(parsedParams, null, 2))}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${markHtml(JSON.stringify(parsedParams, null, 2))}</pre>`;
       } else {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${escHtml(params)}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${markHtml(params)}</pre>`;
       }
 
       let resultHtml = '';
       if (result) {
         const parsedResult = tryParseJson(result);
         if (parsedResult) {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${escHtml(JSON.stringify(parsedResult, null, 2))}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${markHtml(JSON.stringify(parsedResult, null, 2))}</pre>`;
         } else {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${escHtml(result)}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${markHtml(result)}</pre>`;
         }
       }
 
       detailHtml = `
         <div style="margin-top:8px;border-top:1px solid ${COLORS.border};padding-top:8px">
-          ${errorMsg ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.error};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">错误 (Error)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px;color:${COLORS.error};font-size:11px">${escHtml(errorMsg)}</div></div>` : ''}
+          ${errorMsg ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.error};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">错误 (Error)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px;color:${COLORS.error};font-size:11px">${markHtml(errorMsg)}</div></div>` : ''}
           ${params ? `<div style="margin-bottom:6px"><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">参数 (Parameters)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${paramsHtml}</div></div>` : ''}
           ${result ? `<div><div style="font-size:10px;color:${COLORS.textMuted};margin-bottom:3px;text-transform:uppercase;letter-spacing:.05em">结果 (Result)</div><div style="background:${COLORS.bg};border-radius:4px;padding:8px">${resultHtml}</div></div>` : ''}
         </div>`;
@@ -493,7 +515,7 @@
 
     const shortResult = block.shortResult || '';
     const shortResultHtml = shortResult
-      ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${escHtml(shortResult)}</span>`
+      ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;display:inline-block;vertical-align:middle" title="${escHtml(shortResult)}">${markHtml(shortResult)}</span>`
       : '';
 
     const tsHtml = msgTs
@@ -505,7 +527,7 @@
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none;min-width:0;overflow:hidden">
             <span style="font-size:14px;flex-shrink:0">${icon}</span>
-            <span style="font-size:12px;font-weight:600;color:${color};flex-shrink:0">${escHtml(block.name || 'Tool')}</span>
+            <span style="font-size:12px;font-weight:600;color:${color};flex-shrink:0">${markHtml(block.name || 'Tool')}</span>
             <span style="font-size:12px;color:${statusColor};flex-shrink:0">${statusIcon}</span>
             ${shortResultHtml}
           </div>
@@ -543,9 +565,9 @@
         <div style="display:flex;align-items:center;padding:8px 10px;gap:6px">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
-            <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${escHtml(block.subagentName || 'subagent')}</span>
+            <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${markHtml(block.subagentName || 'subagent')}</span>
             <span style="font-size:12px;color:${statusColor}">${statusIcon} ${escHtml(block.status || '')}</span>
-            ${block.configuration && block.configuration.description ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:4px">${escHtml(block.configuration.description)}</span>` : ''}
+            ${block.configuration && block.configuration.description ? `<span style="font-size:11px;color:${COLORS.textMuted};margin-left:4px">${markHtml(block.configuration.description)}</span>` : ''}
           </div>
           ${errorBadge}
           <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
@@ -570,7 +592,7 @@
     }
     return `
       <div style="padding:5px 10px;font-size:12px;color:${COLORS.textMuted};line-height:1.5;white-space:pre-wrap;word-break:break-word">
-        <span id="${ID}-text-preview-${id}">${escHtml(previewLines)}${hasMore ? '<span style="color:' + COLORS.textMuted + '">...</span>' : ''}</span>
+        <span id="${ID}-text-preview-${id}">${markHtml(previewLines)}${hasMore ? '<span style="color:' + COLORS.textMuted + '">...</span>' : ''}</span>
         ${hasMore ? `<span onclick="window.__agentVis.toggleText('${id}')" style="cursor:pointer;color:${COLORS.accent};font-size:11px;margin-left:4px" id="${ID}-text-toggle-${id}"> [展开]</span>` : ''}
       </div>`;
   }
@@ -628,7 +650,7 @@
 
     let userContent = '';
     if (isUser && msg.content) {
-      userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${escHtml(msg.content)}</div>`;
+      userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${markHtml(msg.content)}</div>`;
     }
 
     const blocksHtml = isExpanded
@@ -836,8 +858,15 @@
   // ── Search / filter state ──────────────────────
   let searchKeyword = '';
   let searchTimePreset = null; // null | '1h' | '6h' | '12h'
-  let searchTimeFrom = '';
-  let searchTimeTo = '';
+  let sliderFromPct = 0;   // 0–100, % of session duration
+  let sliderToPct   = 100; // 0–100
+  let _sliderMinTs  = null; // actual timestamp of first message
+  let _sliderMaxTs  = null; // actual timestamp of last message
+
+  // ── Search navigation state ───────────────────
+  let _markCounter     = 0;   // incremented per <mark> during render
+  let searchMatchIndex = -1;  // currently highlighted match
+  let searchMatchTotal = 0;   // total matches in last render
 
   /* ─────────────────────────────────────────────
    *  Search / filter helpers
@@ -874,15 +903,22 @@
 
   // Returns [{msg, idx}] preserving original indices so block IDs stay correct.
   function filterMessages(messages) {
+    // Update slider bounds from current message timestamps.
+    const times = messages.map(m => m.lastModified).filter(Boolean);
+    _sliderMinTs = times.length ? Math.min(...times) : null;
+    _sliderMaxTs = times.length ? Math.max(...times) : null;
+
     let pairs = messages.map((msg, idx) => ({ msg, idx }));
 
+    // Time filter: preset or slider
     if (searchTimePreset) {
       const msMap = { '1h': 3600000, '6h': 21600000, '12h': 43200000 };
       const cutoff = Date.now() - (msMap[searchTimePreset] || 0);
       pairs = pairs.filter(({ msg }) => !msg.lastModified || msg.lastModified >= cutoff);
-    } else if (searchTimeFrom || searchTimeTo) {
-      const from = searchTimeFrom ? new Date(searchTimeFrom).getTime() : 0;
-      const to = searchTimeTo ? new Date(searchTimeTo).getTime() : Infinity;
+    } else if (_sliderMinTs && _sliderMaxTs && (sliderFromPct > 0 || sliderToPct < 100)) {
+      const range = _sliderMaxTs - _sliderMinTs;
+      const from = _sliderMinTs + range * sliderFromPct / 100;
+      const to   = _sliderMinTs + range * sliderToPct   / 100;
       pairs = pairs.filter(({ msg }) => {
         if (!msg.lastModified) return true;
         return msg.lastModified >= from && msg.lastModified <= to;
@@ -897,28 +933,146 @@
     return pairs;
   }
 
-  // Update preset-button highlights and match count badge.
+  // escHtml + wrap keyword matches with <mark id="ID-mark-N"> spans.
+  // Uses global searchKeyword; increments _markCounter per match.
+  function markHtml(str) {
+    if (!str) return '';
+    const kw = searchKeyword.trim().toLowerCase();
+    if (!kw) return escHtml(str);
+    const lower = str.toLowerCase();
+    const result = [];
+    let last = 0;
+    let pos;
+    while ((pos = lower.indexOf(kw, last)) !== -1) {
+      if (pos > last) result.push(escHtml(str.slice(last, pos)));
+      const mi = _markCounter++;
+      result.push(
+        `<mark id="${ID}-mark-${mi}" data-search-match="${mi}" style="`
+        + `background:${COLORS.accent}40;color:${COLORS.accent};border-radius:2px;padding:0 1px`
+        + `">${escHtml(str.slice(pos, pos + kw.length))}</mark>`
+      );
+      last = pos + kw.length;
+    }
+    if (last < str.length) result.push(escHtml(str.slice(last)));
+    return result.join('');
+  }
+
+  // Ensure all matched messages (and subagents on the path to a keyword) are expanded.
+  function autoExpandForKeyword(filtered) {
+    if (!searchKeyword.trim()) return;
+    const kw = searchKeyword.trim().toLowerCase();
+    function expandPath(idxStr, blocks) {
+      if (!Array.isArray(blocks)) return;
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        if (b.type === 'subagent' && Array.isArray(b.blocks)) {
+          if (msgMatchesKeyword({ content: b.subagentName, blocks: b.blocks }, kw) ||
+              (b.configuration && (b.configuration.description || '').toLowerCase().includes(kw))) {
+            expandedIds.add(`subagent-${idxStr}-${i}`);
+            expandPath(`${idxStr}-sub-${i}`, b.blocks);
+          }
+        }
+      }
+    }
+    for (const { msg, idx } of filtered) {
+      expandedIds.add(`msg-${idx}`);
+      expandPath(String(idx), msg.blocks);
+    }
+  }
+
+  // Navigate to prev (-1) or next (+1) search match.
+  function navigateSearch(delta) {
+    if (searchMatchTotal === 0) return;
+    if (searchMatchIndex === -1 && delta < 0) searchMatchIndex = 0;
+    searchMatchIndex = ((searchMatchIndex + delta) + searchMatchTotal) % searchMatchTotal;
+    highlightCurrentMatch();
+    updateSearchNav();
+  }
+
+  // Apply visual highlight to the current match and scroll it into view.
+  function highlightCurrentMatch() {
+    document.querySelectorAll(`[data-search-match]`).forEach(el => {
+      el.style.background = `${COLORS.accent}40`;
+      el.style.color = COLORS.accent;
+      el.style.outline = '';
+    });
+    if (searchMatchIndex < 0 || searchMatchTotal === 0) return;
+    const mark = document.getElementById(`${ID}-mark-${searchMatchIndex}`);
+    if (!mark) return;
+    mark.style.background = COLORS.accent;
+    mark.style.color = '#fff';
+    mark.style.outline = `2px solid ${COLORS.accentHover}`;
+    const contentEl = document.getElementById(`${ID}-content`);
+    if (contentEl) {
+      const mr = mark.getBoundingClientRect();
+      const cr = contentEl.getBoundingClientRect();
+      if (mr.top < cr.top || mr.bottom > cr.bottom) {
+        mark.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }
+  }
+
+  // Refresh the search nav UI (count label + button states) and slider fill/labels.
+  function updateSearchNav() {
+    const navCount = document.getElementById(`${ID}-nav-count`);
+    const prevBtn  = document.getElementById(`${ID}-nav-prev`);
+    const nextBtn  = document.getElementById(`${ID}-nav-next`);
+    if (navCount) {
+      const kw = searchKeyword.trim();
+      if (kw && searchMatchTotal > 0) {
+        const cur = searchMatchIndex >= 0 ? searchMatchIndex + 1 : '—';
+        navCount.textContent = `${cur}/${searchMatchTotal}`;
+        navCount.style.color = COLORS.accent;
+      } else if (kw) {
+        navCount.textContent = '0 结果';
+        navCount.style.color = COLORS.error;
+      } else {
+        navCount.textContent = '';
+      }
+    }
+    if (prevBtn) prevBtn.disabled = searchMatchTotal === 0;
+    if (nextBtn) nextBtn.disabled = searchMatchTotal === 0;
+  }
+
+  // Refresh preset-button highlights and slider fill/labels.
   function updateFilterBarState() {
     [null, '1h', '6h', '12h'].forEach(pid => {
       const btn = document.getElementById(`${ID}-preset-${pid ?? 'all'}`);
       if (!btn) return;
-      const active = searchTimePreset === pid && !searchTimeFrom && !searchTimeTo;
-      btn.style.background = active ? COLORS.accent : 'transparent';
-      btn.style.color = active ? '#fff' : COLORS.textMuted;
-      btn.style.borderColor = active ? COLORS.accent : COLORS.border;
+      const isSliderDefault = sliderFromPct === 0 && sliderToPct === 100;
+      const active = searchTimePreset === pid && (pid !== null || isSliderDefault);
+      btn.style.background   = active ? COLORS.accent : 'transparent';
+      btn.style.color        = active ? '#fff' : COLORS.textMuted;
+      btn.style.borderColor  = active ? COLORS.accent : COLORS.border;
     });
-    const countEl = document.getElementById(`${ID}-filter-count`);
-    if (countEl) {
-      const hasFilter = searchKeyword.trim() || searchTimePreset || searchTimeFrom || searchTimeTo;
-      if (hasFilter) {
-        const msgs = fetchMessages() || [];
-        const n = filterMessages(msgs).length;
-        countEl.textContent = `${n}/${msgs.length}`;
-        countEl.style.color = n < msgs.length ? COLORS.accent : COLORS.textMuted;
-      } else {
-        countEl.textContent = '';
-      }
+    updateSliderFill();
+    updateSearchNav();
+  }
+
+  // Recompute and apply the slider fill div width/position and time labels.
+  function updateSliderFill() {
+    const fill = document.getElementById(`${ID}-slider-fill`);
+    if (fill) {
+      fill.style.left  = `${sliderFromPct}%`;
+      fill.style.width = `${sliderToPct - sliderFromPct}%`;
     }
+    const fromLbl = document.getElementById(`${ID}-slider-from-label`);
+    const toLbl   = document.getElementById(`${ID}-slider-to-label`);
+    if (_sliderMinTs && _sliderMaxTs) {
+      const range = _sliderMaxTs - _sliderMinTs;
+      const fromTs = _sliderMinTs + range * sliderFromPct / 100;
+      const toTs   = _sliderMinTs + range * sliderToPct   / 100;
+      if (fromLbl) fromLbl.textContent = formatTime(fromTs);
+      if (toLbl)   toLbl.textContent   = formatTime(toTs);
+    } else {
+      if (fromLbl) fromLbl.textContent = '';
+      if (toLbl)   toLbl.textContent   = '';
+    }
+    // Sync the actual input values
+    const fromSlider = document.getElementById(`${ID}-slider-from`);
+    const toSlider   = document.getElementById(`${ID}-slider-to`);
+    if (fromSlider) fromSlider.value = sliderFromPct;
+    if (toSlider)   toSlider.value   = sliderToPct;
   }
 
   // Build the persistent filter bar DOM element (created once in createPanel).
@@ -926,13 +1080,13 @@
     const bar = document.createElement('div');
     bar.id = `${ID}-filter-bar`;
     bar.style.cssText = `
-      padding:7px 12px 6px;background:${COLORS.bg};
+      padding:8px 12px 7px;background:${COLORS.bg};
       border-bottom:1px solid ${COLORS.border};flex-shrink:0;
     `;
 
-    // ── Row 1: keyword input ─────────────────────
+    // ── Row 1: keyword input + nav ───────────────
     const searchRow = document.createElement('div');
-    searchRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:5px;';
+    searchRow.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px;';
 
     const searchWrap = document.createElement('div');
     searchWrap.style.cssText = `
@@ -948,129 +1102,195 @@
     const searchInput = document.createElement('input');
     searchInput.id = `${ID}-search-input`;
     searchInput.type = 'text';
-    searchInput.placeholder = '关键字搜索…';
+    searchInput.placeholder = '关键字搜索（Enter 跳转下一个）…';
     searchInput.style.cssText = `
       flex:1;background:transparent;border:none;color:${COLORS.text};
       font-size:12px;outline:none;min-width:0;
     `;
     searchInput.addEventListener('input', e => {
       searchKeyword = e.target.value;
+      searchMatchIndex = -1;
+      rerenderContent();        // rebuilds HTML + updates _markCounter / searchMatchTotal
       updateFilterBarState();
-      rerenderContent();
+    });
+    searchInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        navigateSearch(e.shiftKey ? -1 : 1);
+      }
     });
 
     searchWrap.appendChild(searchIcon);
     searchWrap.appendChild(searchInput);
 
+    // Prev / Next buttons
+    const navBtnCss = `
+      flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};
+      color:${COLORS.textMuted};cursor:pointer;font-size:11px;border-radius:3px;
+      padding:2px 6px;white-space:nowrap;
+    `;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.id = `${ID}-nav-prev`;
+    prevBtn.title = '上一个 (Shift+Enter)';
+    prevBtn.textContent = '◀';
+    prevBtn.style.cssText = navBtnCss;
+    prevBtn.disabled = true;
+    prevBtn.addEventListener('click', () => navigateSearch(-1));
+
+    const nextBtn = document.createElement('button');
+    nextBtn.id = `${ID}-nav-next`;
+    nextBtn.title = '下一个 (Enter)';
+    nextBtn.textContent = '▶';
+    nextBtn.style.cssText = navBtnCss;
+    nextBtn.disabled = true;
+    nextBtn.addEventListener('click', () => navigateSearch(1));
+
+    const navCount = document.createElement('span');
+    navCount.id = `${ID}-nav-count`;
+    navCount.style.cssText = `flex-shrink:0;font-size:11px;min-width:50px;text-align:center;color:${COLORS.textMuted};`;
+
     const clearBtn = document.createElement('button');
     clearBtn.textContent = '清除';
-    clearBtn.style.cssText = `
-      flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};
-      color:${COLORS.textMuted};cursor:pointer;font-size:10px;border-radius:3px;
-      padding:2px 7px;white-space:nowrap;
-    `;
+    clearBtn.style.cssText = navBtnCss;
     clearBtn.addEventListener('click', () => {
       searchKeyword = '';
       searchTimePreset = null;
-      searchTimeFrom = '';
-      searchTimeTo = '';
+      sliderFromPct = 0;
+      sliderToPct   = 100;
+      searchMatchIndex = -1;
       const si = document.getElementById(`${ID}-search-input`);
       if (si) si.value = '';
-      const fi = document.getElementById(`${ID}-time-from`);
-      if (fi) fi.value = '';
-      const ti = document.getElementById(`${ID}-time-to`);
-      if (ti) ti.value = '';
-      updateFilterBarState();
       rerenderContent();
+      updateFilterBarState();
     });
 
-    const countBadge = document.createElement('span');
-    countBadge.id = `${ID}-filter-count`;
-    countBadge.style.cssText = `flex-shrink:0;font-size:11px;min-width:44px;text-align:right;`;
-
     searchRow.appendChild(searchWrap);
+    searchRow.appendChild(prevBtn);
+    searchRow.appendChild(navCount);
+    searchRow.appendChild(nextBtn);
     searchRow.appendChild(clearBtn);
-    searchRow.appendChild(countBadge);
 
-    // ── Row 2: time presets ──────────────────────
-    const presetsRow = document.createElement('div');
-    presetsRow.style.cssText = 'display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:5px;';
+    // ── Row 2: time presets + dual-range slider ──
+    const timeRow = document.createElement('div');
+    timeRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap;';
 
+    // Preset buttons
     [
       { pid: null,  label: '全部' },
-      { pid: '1h',  label: '最近1小时' },
-      { pid: '6h',  label: '最近6小时' },
-      { pid: '12h', label: '最近12小时' },
+      { pid: '1h',  label: '1小时' },
+      { pid: '6h',  label: '6小时' },
+      { pid: '12h', label: '12小时' },
     ].forEach(({ pid, label }) => {
       const btn = document.createElement('button');
       btn.id = `${ID}-preset-${pid ?? 'all'}`;
       btn.textContent = label;
       btn.style.cssText = `
-        padding:2px 8px;font-size:11px;border-radius:3px;cursor:pointer;
+        padding:2px 7px;font-size:11px;border-radius:3px;cursor:pointer;flex-shrink:0;
         border:1px solid ${COLORS.border};background:transparent;
         color:${COLORS.textMuted};transition:all .15s;white-space:nowrap;
       `;
       btn.addEventListener('click', () => {
         searchTimePreset = pid;
-        searchTimeFrom = '';
-        searchTimeTo = '';
-        const fi = document.getElementById(`${ID}-time-from`);
-        if (fi) fi.value = '';
-        const ti = document.getElementById(`${ID}-time-to`);
-        if (ti) ti.value = '';
-        updateFilterBarState();
+        // Map preset to slider range
+        if (pid === null) {
+          sliderFromPct = 0;
+          sliderToPct   = 100;
+        } else if (_sliderMinTs && _sliderMaxTs) {
+          const msMap = { '1h': 3600000, '6h': 21600000, '12h': 43200000 };
+          const range  = _sliderMaxTs - _sliderMinTs;
+          const cutoff = Date.now() - msMap[pid];
+          sliderFromPct = range > 0 ? Math.max(0, Math.round((cutoff - _sliderMinTs) / range * 100)) : 0;
+          sliderToPct   = 100;
+        }
         rerenderContent();
+        updateFilterBarState();
       });
-      presetsRow.appendChild(btn);
+      timeRow.appendChild(btn);
     });
 
-    // ── Row 3: custom time range ─────────────────
-    const timeRow = document.createElement('div');
-    timeRow.style.cssText = 'display:flex;align-items:center;gap:5px;flex-wrap:wrap;';
+    // Dual-range slider
+    const sliderWrap = document.createElement('div');
+    sliderWrap.style.cssText = 'flex:1;min-width:80px;display:flex;flex-direction:column;gap:2px;';
 
-    const inputCss = `
-      background:${COLORS.card};border:1px solid ${COLORS.border};color:${COLORS.text};
-      border-radius:4px;padding:2px 5px;font-size:11px;outline:none;color-scheme:dark;
-      max-width:170px;
+    const sliderTrackWrap = document.createElement('div');
+    sliderTrackWrap.style.cssText = 'position:relative;height:20px;';
+
+    const track = document.createElement('div');
+    track.style.cssText = `
+      position:absolute;left:0;right:0;top:50%;height:4px;
+      transform:translateY(-50%);background:${COLORS.border};border-radius:2px;
     `;
 
-    const fromLabel = document.createElement('span');
-    fromLabel.textContent = '从';
-    fromLabel.style.cssText = `font-size:11px;color:${COLORS.textMuted};flex-shrink:0;`;
+    const fill = document.createElement('div');
+    fill.id = `${ID}-slider-fill`;
+    fill.style.cssText = `
+      position:absolute;top:0;height:100%;background:${COLORS.accent};
+      border-radius:2px;left:0%;width:100%;
+    `;
+    track.appendChild(fill);
 
-    const fromInput = document.createElement('input');
-    fromInput.id = `${ID}-time-from`;
-    fromInput.type = 'datetime-local';
-    fromInput.style.cssText = inputCss;
-    fromInput.addEventListener('change', e => {
-      searchTimeFrom = e.target.value;
-      if (searchTimeFrom || searchTimeTo) searchTimePreset = null;
-      updateFilterBarState();
+    const sliderInputCss = `
+      position:absolute;width:100%;height:100%;top:0;left:0;margin:0;padding:0;
+      -webkit-appearance:none;appearance:none;background:transparent;
+      pointer-events:none;outline:none;
+    `;
+
+    const fromSlider = document.createElement('input');
+    fromSlider.type  = 'range';
+    fromSlider.id    = `${ID}-slider-from`;
+    fromSlider.min   = '0';
+    fromSlider.max   = '100';
+    fromSlider.value = '0';
+    fromSlider.style.cssText = sliderInputCss + `z-index:3;`;
+    fromSlider.addEventListener('input', () => {
+      let v = parseInt(fromSlider.value, 10);
+      if (v > sliderToPct - 1) { v = sliderToPct - 1; fromSlider.value = v; }
+      sliderFromPct = v;
+      searchTimePreset = null;
+      updateSliderFill();
       rerenderContent();
+      updateFilterBarState();
     });
 
-    const toLabel = document.createElement('span');
-    toLabel.textContent = '至';
-    toLabel.style.cssText = `font-size:11px;color:${COLORS.textMuted};flex-shrink:0;`;
-
-    const toInput = document.createElement('input');
-    toInput.id = `${ID}-time-to`;
-    toInput.type = 'datetime-local';
-    toInput.style.cssText = inputCss;
-    toInput.addEventListener('change', e => {
-      searchTimeTo = e.target.value;
-      if (searchTimeFrom || searchTimeTo) searchTimePreset = null;
-      updateFilterBarState();
+    const toSlider = document.createElement('input');
+    toSlider.type  = 'range';
+    toSlider.id    = `${ID}-slider-to`;
+    toSlider.min   = '0';
+    toSlider.max   = '100';
+    toSlider.value = '100';
+    toSlider.style.cssText = sliderInputCss + `z-index:4;`;
+    toSlider.addEventListener('input', () => {
+      let v = parseInt(toSlider.value, 10);
+      if (v < sliderFromPct + 1) { v = sliderFromPct + 1; toSlider.value = v; }
+      sliderToPct = v;
+      searchTimePreset = null;
+      updateSliderFill();
       rerenderContent();
+      updateFilterBarState();
     });
 
-    timeRow.appendChild(fromLabel);
-    timeRow.appendChild(fromInput);
-    timeRow.appendChild(toLabel);
-    timeRow.appendChild(toInput);
+    sliderTrackWrap.appendChild(track);
+    sliderTrackWrap.appendChild(fromSlider);
+    sliderTrackWrap.appendChild(toSlider);
+
+    // Time labels below slider
+    const labelsRow = document.createElement('div');
+    labelsRow.style.cssText = 'display:flex;justify-content:space-between;';
+    const fromLbl = document.createElement('span');
+    fromLbl.id = `${ID}-slider-from-label`;
+    fromLbl.style.cssText = `font-size:10px;color:${COLORS.textMuted};`;
+    const toLbl = document.createElement('span');
+    toLbl.id = `${ID}-slider-to-label`;
+    toLbl.style.cssText = `font-size:10px;color:${COLORS.textMuted};text-align:right;`;
+    labelsRow.appendChild(fromLbl);
+    labelsRow.appendChild(toLbl);
+
+    sliderWrap.appendChild(sliderTrackWrap);
+    sliderWrap.appendChild(labelsRow);
+    timeRow.appendChild(sliderWrap);
 
     bar.appendChild(searchRow);
-    bar.appendChild(presetsRow);
     bar.appendChild(timeRow);
 
     return bar;
@@ -1144,6 +1364,7 @@
   function buildContent(messages) {
     // Reset per-render state so IDs stay consistent
     _textIdCounter = 0;
+    _markCounter   = 0;
     Object.keys(_textStore).forEach(k => delete _textStore[k]);
     Object.keys(_jsonStore).forEach(k => delete _jsonStore[k]);
 
@@ -1151,10 +1372,19 @@
     const phases = extractPhases(messages);
     const filtered = filterMessages(messages); // [{msg, idx}]
 
+    // Auto-expand messages/subagents that contain the keyword so highlights are visible.
+    if (searchKeyword.trim()) autoExpandForKeyword(filtered);
+
     let bodyHtml = '';
     if (currentTab === 'timeline') bodyHtml = renderTimeline(filtered);
     else if (currentTab === 'interactions') bodyHtml = renderInteractions(filtered, messages);
     else if (currentTab === 'performance') bodyHtml = renderPerformance(stats, phases, messages);
+
+    // Record total matches found during this render.
+    searchMatchTotal = _markCounter;
+    // Clamp the active index in case matches shrank.
+    if (searchMatchIndex >= searchMatchTotal) searchMatchIndex = searchMatchTotal - 1;
+
     return { bodyHtml, stats };
   }
 
@@ -1166,6 +1396,9 @@
     const { bodyHtml } = buildContent(messages);
     contentEl.innerHTML = bodyHtml;
     contentEl.scrollTop = Math.min(scrollTop, contentEl.scrollHeight - contentEl.clientHeight);
+    updateSearchNav();
+    // Re-apply highlight to current match after DOM rebuild.
+    if (searchMatchIndex >= 0) highlightCurrentMatch();
   }
 
   /* ─────────────────────────────────────────────
@@ -1175,7 +1408,9 @@
   let panelEl = null;
   let toggleBtnEl = null;
   let _autoRefreshTimer = null;
-  const AUTO_REFRESH_MS = 10000;
+  let _dataCheckTimer   = null;
+  const AUTO_REFRESH_MS  = 10000;
+  const DATA_CHECK_MS    = 2000;
 
   function createToggleButton() {
     const btn = document.createElement('button');
@@ -1187,13 +1422,27 @@
       width:48px;height:48px;border-radius:50%;border:none;
       background:${COLORS.accent};color:#fff;font-size:22px;
       cursor:pointer;box-shadow:0 4px 20px rgba(108,138,255,0.5);
-      transition:all .2s;display:flex;align-items:center;justify-content:center;
+      transition:all .2s;display:none;align-items:center;justify-content:center;
     `;
     btn.addEventListener('mouseenter', () => { btn.style.transform = 'scale(1.1)'; });
     btn.addEventListener('mouseleave', () => { btn.style.transform = 'scale(1)'; });
     btn.addEventListener('click', togglePanel);
     document.body.appendChild(btn);
     return btn;
+  }
+
+  // Poll for specStore data; show/hide toggle button accordingly.
+  function startDataCheck() {
+    if (_dataCheckTimer !== null) return;
+    const check = () => {
+      const hasData = !!(fetchMessages()?.length);
+      const btn = document.getElementById(`${ID}-toggle`);
+      if (btn) btn.style.display = hasData ? 'flex' : 'none';
+      // If data disappears while panel is open, close the panel.
+      if (!hasData && panelVisible) window.__agentVis.close();
+    };
+    check();
+    _dataCheckTimer = setInterval(check, DATA_CHECK_MS);
   }
 
   function createPanel() {
@@ -1249,8 +1498,8 @@
     `;
 
     panel.appendChild(header);
+    panel.appendChild(createFilterBar());   // filter bar is ABOVE tabs
     panel.appendChild(tabsEl);
-    panel.appendChild(createFilterBar());
     panel.appendChild(content);
     document.body.appendChild(panel);
     return panel;
@@ -1267,9 +1516,6 @@
 
     const tabsEl = document.getElementById(`${ID}-tabs`);
     if (tabsEl) tabsEl.innerHTML = renderTabs();
-
-    // Keep filter bar count in sync with live data
-    updateFilterBarState();
 
     const contentEl = document.getElementById(`${ID}-content`);
     if (contentEl) {
@@ -1290,6 +1536,9 @@
         contentEl.scrollTop = Math.min(scrollTop, contentEl.scrollHeight - contentEl.clientHeight);
       }
     }
+    // Sync filter bar UI (preset highlights, slider fill/labels, nav count)
+    updateFilterBarState();
+    if (searchMatchIndex >= 0) highlightCurrentMatch();
   }
 
   function startAutoRefresh() {
@@ -1319,6 +1568,20 @@
     }
   }
 
+  // Close panel when user clicks outside it.
+  function onDocumentClick(e) {
+    if (!panelVisible) return;
+    const panel  = document.getElementById(`${ID}-panel`);
+    const toggle = document.getElementById(`${ID}-toggle`);
+    const jsonOv = document.getElementById(`${ID}-json-overlay`);
+    if (
+      (panel  && panel.contains(e.target))  ||
+      (toggle && toggle.contains(e.target)) ||
+      (jsonOv && jsonOv.contains(e.target))
+    ) return;
+    window.__agentVis.close();
+  }
+
   /* ─────────────────────────────────────────────
    *  Global API (used by inline onclick handlers)
    * ───────────────────────────────────────────── */
@@ -1338,6 +1601,9 @@
       if (panelEl) panelEl.style.transform = 'translateX(100%)';
       stopAutoRefresh();
     },
+    navigate(delta) {
+      navigateSearch(delta);
+    },
     toggleText(id) {
       const span = document.getElementById(`${ID}-text-preview-${id}`);
       const btn = document.getElementById(`${ID}-text-toggle-${id}`);
@@ -1345,11 +1611,11 @@
       const stored = _textStore[id];
       if (!stored) return;
       if (btn.textContent.includes('展开')) {
-        // Set full content safely via textContent (no XSS risk)
-        span.textContent = stored.full;
+        // Use innerHTML + highlightText so keyword marks are preserved on expand.
+        span.innerHTML = highlightText(stored.full);
         btn.textContent = ' [收起]';
       } else {
-        span.textContent = stored.preview;
+        span.innerHTML = highlightText(stored.preview);
         // Re-append the ellipsis indicator
         const ellipsis = document.createElement('span');
         ellipsis.style.color = COLORS.textMuted;
@@ -1414,11 +1680,33 @@
       #${ID}-json-overlay pre::-webkit-scrollbar { width: 5px; height: 5px; }
       #${ID}-json-overlay pre::-webkit-scrollbar-track { background: transparent; }
       #${ID}-json-overlay pre::-webkit-scrollbar-thumb { background: ${COLORS.border}; border-radius: 2px; }
+
+      /* Dual-range slider thumb styling */
+      #${ID}-slider-from::-webkit-slider-thumb,
+      #${ID}-slider-to::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 14px; height: 14px; border-radius: 50%;
+        background: ${COLORS.accent}; border: 2px solid #fff;
+        cursor: pointer; pointer-events: all;
+        box-shadow: 0 1px 4px rgba(0,0,0,.4);
+      }
+      #${ID}-slider-from::-moz-range-thumb,
+      #${ID}-slider-to::-moz-range-thumb {
+        width: 14px; height: 14px; border-radius: 50%;
+        background: ${COLORS.accent}; border: 2px solid #fff;
+        cursor: pointer; pointer-events: all;
+      }
     `;
     document.head.appendChild(style);
 
     toggleBtnEl = createToggleButton();
     panelEl = createPanel();
+
+    // Click anywhere outside the panel to auto-close it.
+    document.addEventListener('click', onDocumentClick, true);
+
+    // Show the toggle button only when specStore data is available.
+    startDataCheck();
   }
 
   if (document.readyState === 'loading') {
