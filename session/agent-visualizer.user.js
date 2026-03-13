@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.14
+// @version      1.4.15
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -79,11 +79,6 @@
   function toolIcon(name) {
     return TOOL_ICONS[name] || '🔧';
   }
-
-  // Approximate header heights for depth-aware sticky positioning.
-  // These match the padding + single-line content in each card type.
-  const MSG_HEADER_H = 44;   // renderMessage header  (~padding 10+10 + line ~24px)
-  const SUB_HEADER_H = 36;   // renderSubagentBlock header (~padding 8+8 + line ~20px)
 
   function formatTime(ts) {
     if (!ts) return '—';
@@ -660,7 +655,7 @@
       </div>`;
   }
 
-  function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0, stickyTop = 0) {
+  function renderSubagentBlock(block, msgIdx, blockIdx, depth = 0) {
     const id = `subagent-${msgIdx}-${blockIdx}`;
     const isExpanded = expandedIds.has(id);
     const statusColor = block.status === 'completed' ? COLORS.success : COLORS.warning;
@@ -681,13 +676,15 @@
       const entries = block.blocks.map((b, bi) => ({ b, bi }));
       if (timelineOrder === 'desc') entries.reverse(); // local array, safe to mutate
       innerBlocksHtml = entries.map(({ b, bi }) =>
-        renderBlock(b, `${msgIdx}-sub-${blockIdx}`, bi, depth + 1, stickyTop + SUB_HEADER_H)
+        renderBlock(b, `${msgIdx}-sub-${blockIdx}`, bi, depth + 1)
       ).join('');
     }
 
+    // z-index decreases with depth so parent sticky headers always cover child ones.
+    const stickyZIndex = 9 - depth;
     return `
       <div style="margin:4px 0 4px ${indent}px;background:${bgColor};border:1px solid ${hasError ? COLORS.error : COLORS.border};border-left:3px solid ${borderColor};border-radius:6px;${isExpanded ? '' : 'overflow:hidden;'}">
-        <div style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:${stickyTop}px;z-index:2;border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
+        <div data-ag-sticky="" style="display:flex;align-items:center;padding:8px 10px;gap:6px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:${stickyZIndex};border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${id}')" style="display:flex;align-items:center;flex:1;gap:6px;cursor:pointer;user-select:none">
             <span style="font-size:14px">🤖</span>
             <span style="font-size:12px;font-weight:600;color:${COLORS.subagent}">子智能体: ${markHtml(block.subagentName || 'subagent')}</span>
@@ -698,7 +695,7 @@
           <span onclick="window.__agentVis.toggle('${id}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
           <button onclick="window.__agentVis.showJson('${id}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
-        ${isExpanded && innerBlocksHtml ? `<div style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerBlocksHtml}</div>` : ''}
+        ${isExpanded && innerBlocksHtml ? `<div data-ag-body="" style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerBlocksHtml}</div>` : ''}
       </div>`;
   }
 
@@ -722,9 +719,9 @@
       </div>`;
   }
 
-  function renderBlock(block, msgIdx, blockIdx, depth = 0, stickyTop = 0) {
+  function renderBlock(block, msgIdx, blockIdx, depth = 0) {
     if (block.type === 'tool') return renderToolBlock(block, msgIdx, blockIdx);
-    if (block.type === 'subagent') return renderSubagentBlock(block, msgIdx, blockIdx, depth, stickyTop);
+    if (block.type === 'subagent') return renderSubagentBlock(block, msgIdx, blockIdx, depth);
     if (block.type === 'text') return renderTextBlock(block);
     return '';
   }
@@ -782,12 +779,12 @@
       if (!isExpanded) return '';
       const entries = blocks.map((b, bi) => ({ b, bi }));
       if (timelineOrder === 'desc') entries.reverse(); // local array, safe to mutate
-      return entries.map(({ b, bi }) => renderBlock(b, idx, bi, 0, MSG_HEADER_H)).join('');
+      return entries.map(({ b, bi }) => renderBlock(b, idx, bi, 0)).join('');
     })();
 
     return `
       <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};${isExpanded ? '' : 'overflow:hidden;'}">
-        <div style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:3;border-radius:8px 8px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
+        <div data-ag-sticky="" style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:10;border-radius:8px 8px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
           <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
             <span style="font-size:12px;font-weight:700;color:${leftBorderColor};flex-shrink:0">${roleLabel}</span>
             <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
@@ -798,7 +795,7 @@
           <button onclick="window.__agentVis.showJson('${msgId}')" title="查看原始 JSON" style="flex-shrink:0;background:transparent;border:1px solid ${COLORS.border};color:${COLORS.textMuted};border-radius:3px;padding:1px 6px;cursor:pointer;font-size:10px;font-family:monospace">{}</button>
         </div>
         ${userContent}
-        ${isExpanded && blocksHtml ? `<div style="padding:0 8px 8px;border-top:1px solid ${COLORS.border}">${blocksHtml}</div>` : ''}
+        ${isExpanded && blocksHtml ? `<div data-ag-body="" style="padding:0 8px 8px;border-top:1px solid ${COLORS.border}">${blocksHtml}</div>` : ''}
       </div>`;
   }
 
@@ -930,7 +927,7 @@
       const outerOverflow = isExpanded ? '' : 'overflow:hidden;';
       // Sticky header: sticks to the top of the #content scroll container when expanded.
       const headerPos = isExpanded
-        ? `position:sticky;top:0;z-index:3;border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};`
+        ? `position:sticky;top:0;z-index:10;border-radius:6px 6px 0 0;border-bottom:1px solid ${COLORS.border};`
         : '';
 
       return `
@@ -1642,12 +1639,14 @@
     // ── Drag state ──────────────────────────────────
     let isDragging = false;
     let hasMoved   = false;
+    let dragActive = false;  // true only while a drag sequence started on this button
     let dragStartClientX, dragStartClientY;
     let dragStartBtnX,    dragStartBtnY;
 
     function startDrag(clientX, clientY) {
       isDragging = true;
       hasMoved   = false;
+      dragActive = true;
       dragStartClientX = clientX;
       dragStartClientY = clientY;
       dragStartBtnX = parseInt(btn.style.left, 10);
@@ -1689,7 +1688,9 @@
     });
     document.addEventListener('mousemove', e => moveDrag(e.clientX, e.clientY));
     document.addEventListener('mouseup', () => {
+      if (!dragActive) return;          // click was NOT on the toggle button — ignore
       const wasClick = !hasMoved;
+      dragActive = false;
       endDrag();
       if (wasClick) togglePanel();
     });
@@ -1706,7 +1707,9 @@
       moveDrag(t.clientX, t.clientY);
     }, { passive: false });
     document.addEventListener('touchend', () => {
+      if (!dragActive) return;          // touch was NOT on the toggle button — ignore
       const wasClick = !hasMoved;
+      dragActive = false;
       endDrag();
       if (wasClick) togglePanel();
     });
