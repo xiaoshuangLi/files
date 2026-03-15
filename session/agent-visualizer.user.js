@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.19
+// @version      1.4.20
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -459,6 +459,10 @@
   // In-memory store for JSON viewer data keyed by block/message ID
   const _jsonStore = {};
 
+  // Maps original message index → phase object (built in buildContent).
+  // Used by renderMessage to display the active phase badge on each message card.
+  const _msgPhaseMap = {};
+
   function toggleExpand(id) {
     if (expandedIds.has(id)) expandedIds.delete(id);
     else expandedIds.add(id);
@@ -792,6 +796,19 @@
       ? `<span onclick="window.__agentVis.jumpToError('${msgId}')" title="展开并跳转到第一个错误" style="flex-shrink:0;background:${COLORS.error}22;color:${COLORS.error};border:1px solid ${COLORS.error};border-radius:3px;padding:1px 6px;font-size:10px;font-weight:700;cursor:pointer;margin-right:2px">❌ ${failCount}个错误</span>`
       : '';
 
+    // Phase badge: show which phase this message belongs to (same style as 性能 panel)
+    const phase = _msgPhaseMap[idx];
+    const phaseBadgeHtml = (() => {
+      if (!phase) return '';
+      const cmdColor = commandColor(phase.pathPrefix);
+      const cmd = phase.pathPrefix ? phase.pathPrefix.split('/')[0] : null;
+      const cmdChip = cmd
+        ? `<span style="font-family:monospace;font-size:10px;font-weight:600;color:${cmdColor};background:${cmdColor}18;border:1px solid ${cmdColor}55;border-radius:3px;padding:0 4px;margin-right:3px">${escHtml(cmd)}/</span>`
+        : '';
+      const labelHtml = `<span style="font-size:10px;color:${COLORS.textMuted}">${escHtml(phase.label)}</span>`;
+      return `<div style="margin-top:3px;display:flex;align-items:center;flex-wrap:wrap;gap:2px">${cmdChip}${labelHtml}</div>`;
+    })();
+
     let userContent = '';
     if (isUser && msg.content) {
       userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${markHtml(msg.content)}</div>`;
@@ -807,10 +824,13 @@
     return `
       <div style="margin:8px 0;${outerBorder}border-radius:8px;background:${bgColor};${isExpanded ? '' : 'overflow:hidden;'}">
         <div data-ag-sticky="" style="display:flex;align-items:center;padding:10px 12px;gap:8px;background:${isExpanded ? COLORS.card : bgColor};${isExpanded ? `position:sticky;top:0;z-index:10;border-radius:8px 8px 0 0;border-bottom:1px solid ${COLORS.border};` : ''}">
-          <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;align-items:center;flex:1;gap:8px;cursor:pointer;user-select:none;min-width:0">
-            <span style="font-size:12px;font-weight:700;color:${roleColor};flex-shrink:0">${roleLabel}</span>
-            <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
-            <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
+          <div onclick="window.__agentVis.toggle('${msgId}')" style="display:flex;flex-direction:column;flex:1;cursor:pointer;user-select:none;min-width:0">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;font-weight:700;color:${roleColor};flex-shrink:0">${roleLabel}</span>
+              <span style="font-size:10px;color:${COLORS.textMuted};flex-shrink:0">${formatTime(msg.lastModified)}</span>
+              <div style="flex:1;display:flex;flex-wrap:wrap;gap:2px;margin-left:4px">${toolSummary}${subSummary}</div>
+            </div>
+            ${phaseBadgeHtml}
           </div>
           ${errorBadge}
           <span onclick="window.__agentVis.toggle('${msgId}')" style="flex-shrink:0;font-size:11px;color:${COLORS.textMuted};cursor:pointer">${isExpanded ? '▲' : '▼'}</span>
@@ -1626,6 +1646,8 @@
     // Reset command-color assignments so the same commands always get the same palette slot.
     Object.keys(_cmdColorCache).forEach(k => delete _cmdColorCache[k]);
     _cmdColorNext = 0;
+    // Reset per-message phase lookup.
+    Object.keys(_msgPhaseMap).forEach(k => delete _msgPhaseMap[k]);
 
     const filtered = filterMessages(messages); // [{msg, idx}]
 
@@ -1638,6 +1660,18 @@
 
     const stats = computeStats(filteredMsgs);
     const phases = extractPhases(filteredMsgs);
+
+    // Build a lookup: original message index → phase, so renderMessage can show the phase badge.
+    // phases[i].startMsgIdx / endMsgIdx are indices into filteredMsgs; use filtered[i].idx to
+    // convert back to original indices.
+    for (const p of phases) {
+      const start = p.startMsgIdx != null ? p.startMsgIdx : 0;
+      const end   = p.endMsgIdx   != null ? p.endMsgIdx   : filteredMsgs.length - 1;
+      for (let i = start; i <= end; i++) {
+        const origIdx = filtered[i] != null ? filtered[i].idx : null;
+        if (origIdx != null) _msgPhaseMap[origIdx] = p;
+      }
+    }
 
     let bodyHtml = '';
     if (currentTab === 'timeline') bodyHtml = renderTimeline(filtered);
