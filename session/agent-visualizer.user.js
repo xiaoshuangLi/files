@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.18
+// @version      1.4.19
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -78,6 +78,33 @@
 
   function toolIcon(name) {
     return TOOL_ICONS[name] || '🔧';
+  }
+
+  // Stable palette of visually distinct hues for command prefixes (specify, plan, …).
+  // Each unique command root gets a deterministic color picked by its hash index.
+  const CMD_PALETTE = [
+    '#fbbf24', // amber  – warm gold
+    '#6c8aff', // blue   – default accent
+    '#34d399', // green  – success-like
+    '#f472b6', // pink
+    '#a78bfa', // purple
+    '#38bdf8', // sky
+    '#fb923c', // orange
+    '#c084fc', // violet
+    '#a3e635', // lime
+    '#2dd4bf', // teal
+  ];
+  const _cmdColorCache = {};
+  let   _cmdColorNext  = 0;
+  function commandColor(cmd) {
+    if (!cmd) return COLORS.accent;
+    // Use only the first path segment as the "command" key (e.g. "specify" from "specify/子路径")
+    const key = cmd.split('/')[0];
+    if (!_cmdColorCache[key]) {
+      _cmdColorCache[key] = CMD_PALETTE[_cmdColorNext % CMD_PALETTE.length];
+      _cmdColorNext++;
+    }
+    return _cmdColorCache[key];
   }
 
   function formatTime(ts) {
@@ -874,16 +901,23 @@
         : (p.msgSpan !== null && p.msgSpan > 0) ? `${p.msgSpan} 条消息跨度` : '—';
       // Secondary label: sum of individual tool durations (pure execution, no idle gaps)
       const execStr = p.toolExecTime !== null ? formatDuration(p.toolExecTime) : null;
-      // Rank-based color (top phase = warning accent, rest = accent)
-      const rankColor = i === 0 ? COLORS.warning : COLORS.accent;
+      // Color is keyed to the command (pathPrefix root), giving each command a distinct hue.
+      const cmdColor = commandColor(p.pathPrefix);
       const outerBorder = `border:1px solid ${COLORS.border};`;
       const failBadge = p.hasFailed
         ? `<span style="font-size:10px;color:${COLORS.error};font-weight:700;flex-shrink:0">❌ 含失败</span>`
         : '';
 
-      // Path prefix subtitle: show "specify/阶段一" style if we have a prefix
+      // Path prefix subtitle: highlight the command prefix as a colored badge, then show phase name.
       const pathSubtitle = p.pathPrefix
-        ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-top:2px;font-family:monospace">${escHtml(p.pathPrefix)}/${escHtml(p.phaseName)}</div>`
+        ? (() => {
+            const cmd = p.pathPrefix.split('/')[0];
+            const rest = p.pathPrefix.split('/').slice(1).join('/');
+            const cmdBadge = `<span style="font-family:monospace;font-size:10px;font-weight:600;color:${cmdColor};background:${cmdColor}18;border:1px solid ${cmdColor}55;border-radius:3px;padding:0 4px;margin-right:2px">${escHtml(cmd)}/</span>`;
+            const restPart = rest ? `<span style="font-family:monospace;font-size:10px;color:${COLORS.textMuted}">${escHtml(rest)}/</span>` : '';
+            const phasePart = `<span style="font-family:monospace;font-size:10px;color:${COLORS.textMuted}">${escHtml(p.phaseName)}</span>`;
+            return `<div style="margin-top:2px">${cmdBadge}${restPart}${phasePart}</div>`;
+          })()
         : '';
 
       // Collect tool blocks from all messages within this phase's block-level range
@@ -951,7 +985,7 @@
         : '';
 
       return `
-        <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${rankColor};border-radius:6px;${outerOverflow}">
+        <div style="margin:6px 0;background:${COLORS.card};${outerBorder}border-left:3px solid ${cmdColor};border-radius:6px;${outerOverflow}">
           <div onclick="window.__agentVis.toggle('${phaseId}')" style="padding:8px 10px;cursor:pointer;user-select:none;background:${COLORS.card};${headerPos}">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:${p.duration ? 4 : 0}px">
               <div style="flex:1;min-width:0">
@@ -960,13 +994,13 @@
               </div>
               ${failBadge}
               <div style="text-align:right;flex-shrink:0">
-                <div style="font-size:12px;font-weight:700;color:${rankColor}">${durStr}</div>
+                <div style="font-size:12px;font-weight:700;color:${cmdColor}">${durStr}</div>
                 ${execStr ? `<div style="font-size:10px;color:${COLORS.textMuted};margin-top:1px" title="工具纯执行耗时（∑ updateAt-createAt，不含空闲等待）">⚙️ ${execStr}</div>` : ''}
               </div>
               <span style="font-size:11px;color:${COLORS.textMuted};flex-shrink:0">${isExpanded ? '▲' : '▼'}</span>
             </div>
             ${(p.duration || p.toolExecTime) ? `<div style="background:${COLORS.border};border-radius:3px;height:5px;overflow:hidden">
-              <div style="width:${pct}%;height:100%;background:${rankColor};border-radius:3px"></div>
+              <div style="width:${pct}%;height:100%;background:${cmdColor};border-radius:3px"></div>
             </div>` : ''}
           </div>
           ${isExpanded ? `<div style="padding:0 10px 10px;border-top:1px solid ${COLORS.border}">${innerHtml}</div>` : ''}
@@ -1589,6 +1623,9 @@
     _markCounter   = 0;
     Object.keys(_textStore).forEach(k => delete _textStore[k]);
     Object.keys(_jsonStore).forEach(k => delete _jsonStore[k]);
+    // Reset command-color assignments so the same commands always get the same palette slot.
+    Object.keys(_cmdColorCache).forEach(k => delete _cmdColorCache[k]);
+    _cmdColorNext = 0;
 
     const filtered = filterMessages(messages); // [{msg, idx}]
 
