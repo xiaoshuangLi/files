@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.20
+// @version      1.4.21
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -470,8 +470,45 @@
   }
 
   /* ─────────────────────────────────────────────
-   *  JSON viewer overlay
+   *  User-content hover tooltip
    * ───────────────────────────────────────────── */
+  function showUserTooltip(contentKey, triggerEl) {
+    hideUserTooltip();
+    // Only pop up when the inner box is actually clipped by line-clamp.
+    const innerEl = triggerEl && triggerEl.firstElementChild;
+    if (!innerEl || innerEl.scrollHeight <= innerEl.clientHeight) return;
+    const stored = _textStore[contentKey];
+    if (!stored) return;
+
+    const tip = document.createElement('div');
+    tip.id = `${ID}-user-tip`;
+    tip.style.cssText = `
+      position:fixed;z-index:2147483647;
+      background:${COLORS.bg};border:1px solid ${COLORS.border};border-radius:6px;
+      padding:8px 12px;font-size:12px;color:${COLORS.text};
+      white-space:pre-wrap;word-break:break-word;
+      max-width:520px;max-height:360px;overflow-y:auto;
+      box-shadow:0 8px 28px rgba(0,0,0,.75);
+      line-height:1.5;pointer-events:none;
+    `;
+    tip.textContent = stored.full;
+
+    // Position the tooltip just below the trigger element.
+    const rect = triggerEl.getBoundingClientRect();
+    const tipLeft = Math.max(4, Math.min(rect.left + 4, window.innerWidth - 530));
+    const tipTop  = rect.bottom + 4;
+    tip.style.left = `${tipLeft}px`;
+    tip.style.top  = `${tipTop}px`;
+
+    document.body.appendChild(tip);
+  }
+
+  function hideUserTooltip() {
+    const tip = document.getElementById(`${ID}-user-tip`);
+    if (tip) tip.remove();
+  }
+
+
   function showJsonOverlay(id) {
     const data = _jsonStore[id];
     if (!data) return;
@@ -811,7 +848,10 @@
 
     let userContent = '';
     if (isUser && msg.content) {
-      userContent = `<div style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};white-space:pre-wrap;word-break:break-word;line-height:1.5">${markHtml(msg.content)}</div>`;
+      // contentKey is always 'user-<integer>' — safe as an HTML attribute value.
+      const contentKey = `user-${idx}`;
+      _textStore[contentKey] = { full: msg.content };
+      userContent = `<div onmouseenter="window.__agentVis.showUserTooltip('${escHtml(contentKey)}',this)" onmouseleave="window.__agentVis.hideUserTooltip()" style="padding:6px 12px 8px;font-size:12px;color:${COLORS.text};line-height:1.5"><div style="overflow:hidden;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;white-space:pre-wrap;word-break:break-word">${markHtml(msg.content)}</div></div>`;
     }
 
     const blocksHtml = (() => {
@@ -1094,6 +1134,7 @@
 
   // ── Search / filter state ──────────────────────
   let searchKeyword = '';
+  let _searchDebounceTimer = null; // for 300 ms debounce on keyword input
   let searchTimePreset = null; // null | '1h' | '6h' | '12h'
   let sliderFromPct = 0;   // 0–100, % of session duration
   let sliderToPct   = 100; // 0–100
@@ -1347,8 +1388,12 @@
     searchInput.addEventListener('input', e => {
       searchKeyword = e.target.value;
       searchMatchIndex = -1;
-      rerenderContent();        // rebuilds HTML + updates _markCounter / searchMatchTotal
-      updateFilterBarState();
+      updateFilterBarState();   // instant: just updates button/nav states
+      clearTimeout(_searchDebounceTimer);
+      _searchDebounceTimer = setTimeout(() => {
+        _searchDebounceTimer = null;
+        rerenderContent();      // deferred 300 ms: rebuilds HTML + updates _markCounter
+      }, 300);
     });
     searchInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
@@ -2102,6 +2147,12 @@
           failBlock.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       });
+    },
+    showUserTooltip(contentKey, triggerEl) {
+      showUserTooltip(contentKey, triggerEl);
+    },
+    hideUserTooltip() {
+      hideUserTooltip();
     },
   };
 
