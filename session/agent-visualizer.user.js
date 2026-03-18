@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.22
+// @version      1.4.23
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -156,7 +156,7 @@
     while ((pos = lower.indexOf(kw, last)) !== -1) {
       if (pos > last) result.push(escHtml(str.slice(last, pos)));
       result.push(
-        `<mark style="background:${COLORS.accent}40;color:${COLORS.accent};border-radius:2px;padding:0 1px">`
+        `<mark style="background:${COLORS.accent};color:#fff;border-radius:2px;padding:0 1px">`
         + escHtml(str.slice(pos, pos + kw.length))
         + '</mark>'
       );
@@ -1206,7 +1206,7 @@
       const mi = _markCounter++;
       result.push(
         `<mark id="${ID}-mark-${mi}" data-search-match="${mi}" style="`
-        + `background:${COLORS.accent}40;color:${COLORS.accent};border-radius:2px;padding:0 1px`
+        + `background:${COLORS.accent};color:#fff;border-radius:2px;padding:0 1px`
         + `">${escHtml(str.slice(pos, pos + kw.length))}</mark>`
       );
       last = pos + kw.length;
@@ -1249,8 +1249,8 @@
   // Apply visual highlight to the current match and scroll it into view.
   function highlightCurrentMatch() {
     document.querySelectorAll(`[data-search-match]`).forEach(el => {
-      el.style.background = `${COLORS.accent}40`;
-      el.style.color = COLORS.accent;
+      el.style.background = `${COLORS.accent}60`;
+      el.style.color = '#fff';
       el.style.outline = '';
     });
     if (searchMatchIndex < 0 || searchMatchTotal === 0) return;
@@ -1259,14 +1259,7 @@
     mark.style.background = COLORS.accent;
     mark.style.color = '#fff';
     mark.style.outline = `2px solid ${COLORS.accentHover}`;
-    const contentEl = document.getElementById(`${ID}-content`);
-    if (contentEl) {
-      const mr = mark.getBoundingClientRect();
-      const cr = contentEl.getBoundingClientRect();
-      if (mr.top < cr.top || mr.bottom > cr.bottom) {
-        mark.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }
-    }
+    mark.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   // Refresh the search nav UI (count label + button states) and slider fill/labels.
@@ -1718,6 +1711,10 @@
     const { bodyHtml } = buildContent(messages);
     contentEl.innerHTML = bodyHtml;
     contentEl.scrollTop = Math.min(scrollTop, contentEl.scrollHeight - contentEl.clientHeight);
+    // Auto-jump to first match when a new search is performed (index is still -1).
+    if (searchMatchIndex < 0 && searchMatchTotal > 0 && searchKeyword.trim()) {
+      searchMatchIndex = 0;
+    }
     updateSearchNav();
     // Re-apply highlight to current match after DOM rebuild.
     if (searchMatchIndex >= 0) highlightCurrentMatch();
