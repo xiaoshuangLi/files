@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.21
+// @version      1.4.22
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -1150,33 +1150,13 @@
    *  Search / filter helpers
    * ───────────────────────────────────────────── */
 
-  // Returns true when msg contains kw (case-insensitive) anywhere in its content/blocks.
+  // Returns true when kw appears anywhere in the full JSON of msg (case-insensitive).
   function msgMatchesKeyword(msg, kw) {
-    if (msg.content && msg.content.toLowerCase().includes(kw)) return true;
-    function checkBlocks(blocks) {
-      if (!Array.isArray(blocks)) return false;
-      for (const b of blocks) {
-        if (b.type === 'text' && b.content && b.content.toLowerCase().includes(kw)) return true;
-        if (b.type === 'tool') {
-          if ((b.name || '').toLowerCase().includes(kw)) return true;
-          if ((b.shortResult || '').toLowerCase().includes(kw)) return true;
-          if ((b.error || '').toLowerCase().includes(kw)) return true;
-          const p = typeof b.parameters === 'string' ? b.parameters
-            : (b.parameters ? JSON.stringify(b.parameters) : b.compactParams || '');
-          if (p.toLowerCase().includes(kw)) return true;
-          const r = typeof b.result === 'string' ? b.result
-            : (b.result ? JSON.stringify(b.result) : '');
-          if (r.toLowerCase().includes(kw)) return true;
-        }
-        if (b.type === 'subagent') {
-          if ((b.subagentName || '').toLowerCase().includes(kw)) return true;
-          if (b.configuration && (b.configuration.description || '').toLowerCase().includes(kw)) return true;
-          if (checkBlocks(b.blocks)) return true;
-        }
-      }
+    try {
+      return JSON.stringify(msg).toLowerCase().includes(kw);
+    } catch {
       return false;
     }
-    return checkBlocks(msg.blocks);
   }
 
   // Returns [{msg, idx}] preserving original indices so block IDs stay correct.
@@ -1244,8 +1224,7 @@
       for (let i = 0; i < blocks.length; i++) {
         const b = blocks[i];
         if (b.type === 'subagent' && Array.isArray(b.blocks)) {
-          if (msgMatchesKeyword({ content: b.subagentName, blocks: b.blocks }, kw) ||
-              (b.configuration && (b.configuration.description || '').toLowerCase().includes(kw))) {
+          if (msgMatchesKeyword(b, kw)) {
             expandedIds.add(`subagent-${idxStr}-${i}`);
             expandPath(`${idxStr}-sub-${i}`, b.blocks);
           }
