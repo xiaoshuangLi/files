@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.23
+// @version      1.4.24
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -656,18 +656,18 @@
       let paramsHtml = '';
       const parsedParams = tryParseJson(params);
       if (parsedParams) {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${markHtml(JSON.stringify(parsedParams, null, 2))}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${highlightText(JSON.stringify(parsedParams, null, 2))}</pre>`;
       } else {
-        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${markHtml(params)}</pre>`;
+        paramsHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.text};overflow:auto;max-height:200px;background:transparent">${highlightText(params)}</pre>`;
       }
 
       let resultHtml = '';
       if (result) {
         const parsedResult = tryParseJson(result);
         if (parsedResult) {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${markHtml(JSON.stringify(parsedResult, null, 2))}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${highlightText(JSON.stringify(parsedResult, null, 2))}</pre>`;
         } else {
-          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${markHtml(result)}</pre>`;
+          resultHtml = `<pre style="white-space:pre-wrap;word-break:break-all;margin:0;font-size:11px;color:${COLORS.success};overflow:auto;max-height:200px;background:transparent">${highlightText(result)}</pre>`;
         }
       }
 
@@ -1151,12 +1151,33 @@
    * ───────────────────────────────────────────── */
 
   // Returns true when kw appears anywhere in the full JSON of msg (case-insensitive).
-  function msgMatchesKeyword(msg, kw) {
-    try {
-      return JSON.stringify(msg).toLowerCase().includes(kw);
-    } catch {
-      return false;
+  // Extract only the text that is actually rendered/visible for a block,
+  // so keyword search doesn't match raw JSON fields like parameters or results.
+  function blockDisplayText(block) {
+    const parts = [];
+    if (block.type === 'text' && block.content) {
+      parts.push(block.content);
+    } else if (block.type === 'tool') {
+      if (block.name) parts.push(block.name);
+      if (block.shortResult) parts.push(block.shortResult);
+      if (block.error) parts.push(block.error);
+    } else if (block.type === 'subagent') {
+      if (block.subagentName) parts.push(block.subagentName);
+      if (block.configuration && block.configuration.description) parts.push(block.configuration.description);
+      if (Array.isArray(block.blocks)) block.blocks.forEach(b => parts.push(...blockDisplayText(b)));
     }
+    return parts;
+  }
+
+  function msgMatchesKeyword(msg, kw) {
+    const parts = [];
+    if (msg.content) parts.push(msg.content);
+    if (Array.isArray(msg.blocks)) msg.blocks.forEach(b => parts.push(...blockDisplayText(b)));
+    return parts.join('\n').toLowerCase().includes(kw);
+  }
+
+  function blockMatchesKeyword(block, kw) {
+    return blockDisplayText(block).join('\n').toLowerCase().includes(kw);
   }
 
   // Returns [{msg, idx}] preserving original indices so block IDs stay correct.
@@ -1224,7 +1245,7 @@
       for (let i = 0; i < blocks.length; i++) {
         const b = blocks[i];
         if (b.type === 'subagent' && Array.isArray(b.blocks)) {
-          if (msgMatchesKeyword(b, kw)) {
+          if (blockMatchesKeyword(b, kw)) {
             expandedIds.add(`subagent-${idxStr}-${i}`);
             expandPath(`${idxStr}-sub-${i}`, b.blocks);
           }
