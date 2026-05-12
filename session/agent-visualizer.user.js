@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Agent Session Visualizer
 // @namespace    https://github.com/xiaoshuangLi/files
-// @version      1.4.24
+// @version      1.4.25
 // @description  可视化自主智能体的功能调用、交互信息与性能分析（数据来源：specStore.chat.messages._value）
 // @author       xiaoshuangLi
 // @match        *://*/*
@@ -1076,6 +1076,62 @@
       </div>`;
   }
 
+  // Horizontal stacked bar showing each phase's wall-clock span in chronological order,
+  // followed by a legend grid with color swatch, phase label and duration.
+  function renderPhaseTimeline(phases) {
+    // Use startTs / endTs for true wall-clock span; fall back to tool-level timestamps.
+    const ordered = [...phases]
+      .filter(p => {
+        const s = p.startTs ?? p.firstCreateAt;
+        const e = p.endTs   ?? p.lastUpdateAt;
+        return s != null && e != null && e > s;
+      })
+      .sort((a, b) => {
+        const sa = a.startTs ?? a.firstCreateAt ?? 0;
+        const sb = b.startTs ?? b.firstCreateAt ?? 0;
+        return sa - sb;
+      });
+
+    if (!ordered.length) return '';
+
+    const minTs   = ordered[0].startTs ?? ordered[0].firstCreateAt;
+    const maxTs   = Math.max(...ordered.map(p => p.endTs ?? p.lastUpdateAt).filter(Boolean));
+    const totalSpan = maxTs - minTs;
+    if (!totalSpan) return '';
+
+    const segments = ordered.map(p => {
+      const s    = p.startTs ?? p.firstCreateAt;
+      const e    = p.endTs   ?? p.lastUpdateAt;
+      const left  = ((s - minTs) / totalSpan) * 100;
+      const width = Math.max(((e - s) / totalSpan) * 100, 0.4);
+      const color = commandColor(p.pathPrefix);
+      const durStr = p.duration !== null ? formatDuration(p.duration)
+        : p.endMsgIdx === null ? '进行中' : '—';
+      return `<div title="${escHtml(p.label)}: ${escHtml(durStr)}" style="position:absolute;left:${left.toFixed(2)}%;width:${width.toFixed(2)}%;height:100%;background:${color};box-sizing:border-box;border-right:1px solid ${COLORS.bg}88"></div>`;
+    });
+
+    const legendRows = ordered.map(p => {
+      const color  = commandColor(p.pathPrefix);
+      const durStr = p.duration !== null ? formatDuration(p.duration)
+        : p.endMsgIdx === null ? '进行中' : '—';
+      return `<div style="display:flex;align-items:center;gap:4px;min-width:0;overflow:hidden">
+        <div style="width:8px;height:8px;border-radius:2px;background:${color};flex-shrink:0"></div>
+        <span style="font-size:10px;color:${COLORS.textMuted};flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${escHtml(p.label)}">${escHtml(p.label)}</span>
+        <span style="font-size:10px;font-weight:600;color:${color};flex-shrink:0">${escHtml(durStr)}</span>
+      </div>`;
+    });
+
+    return `
+      <div style="margin-bottom:12px">
+        <div style="background:${COLORS.border};border-radius:4px;height:18px;position:relative;overflow:hidden" title="${escHtml(formatDuration(totalSpan))}">
+          ${segments.join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:3px 10px;margin-top:6px">
+          ${legendRows.join('')}
+        </div>
+      </div>`;
+  }
+
   function renderPerformance(stats, phases, messages) {
     const maxCount = Math.max(...Object.values(stats.toolCounts), 1);
 
@@ -1111,6 +1167,7 @@
             <span style="font-size:12px;font-weight:600;color:${COLORS.text}">🏁 阶段耗时</span>
             <div style="display:flex;gap:4px;flex-wrap:wrap">${sortBtns}</div>
           </div>
+          ${renderPhaseTimeline(phases)}
           ${renderPhasesTable(phases, messages)}
         </div>
         <div style="margin-bottom:12px">
